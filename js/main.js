@@ -943,8 +943,8 @@ function renderStats(body) {
       <div class="kv"><div class="k">Toplam yolcu</div><div class="v">${num(S.totalPax)}</div></div>
     </div>
     ${routes.length ? `<h4>Hatlar (son 30 gün ortalaması)</h4><div class="list" id="stRoutes">${routes.map(({ r, avg, trend }) => `
-      <button class="item" data-r="${r.id}"><span class="swatch" style="background:${r.color}"></span>
-        <div class="grow"><div class="t">${r.a} ⇄ ${r.b}</div>${spark(trend)}</div>
+      <button class="item" data-r="${esc(r.id)}"><span class="swatch" style="background:${esc(r.color)}"></span>
+        <div class="grow"><div class="t">${esc(r.a)} ⇄ ${esc(r.b)}</div>${spark(trend)}</div>
         <div class="r ${sign(avg)}">${money(avg)}<div class="s">/gün</div></div></button>`).join('')}</div>` : ''}`;
   body.querySelectorAll('#stRange button').forEach(b => b.onclick = () => { statRange = Number(b.dataset.d); refreshSheet(); });
   body.querySelectorAll('#stRoutes [data-r]').forEach(b => b.onclick = () => { const r = S.routes.find(x => x.id === b.dataset.r); if (r) openRoute(r); });
@@ -1400,8 +1400,7 @@ $('impFile').onchange = async e => {
 };
 $('impGo').onclick = async () => {
   try {
-    const st = await decodeSave($('impText').value);
-    st.name = String(st.name || 'Havayolu').slice(0, 24);
+    const st = sanitizeImported(await decodeSave($('impText').value));
     if (st.over) throw new Error('Bu kayıt iflas etmiş bir oyuna ait.');
     if (S && !confirm(`"${st.name}" (gün ${st.day}) yüklensin mi? Şu anki oyunun yerini alacak.`)) return;
     $('importBox').classList.remove('show');
@@ -1411,6 +1410,53 @@ $('impGo').onclick = async () => {
   } catch (err) { $('impErr').textContent = err.message || 'Kayıt okunamadı.'; fx('error'); }
 };
 $('btnImportStart').onclick = () => openImport();
+
+// Dışarıdan gelen kayıt güvenilmez: arayüzde HTML olarak basılan alanları temizle ve doğrula.
+function sanitizeImported(st) {
+  const bad = msg => { throw new Error('Kayıt bozuk ya da değiştirilmiş: ' + msg); };
+  // 1) Tüm metinlerden HTML karakterlerini ayıkla
+  const clean = v => {
+    if (typeof v === 'string') return v.replace(/[<>"`]/g, '');
+    if (Array.isArray(v)) return v.map(clean);
+    if (v && typeof v === 'object') { const o = {}; for (const k of Object.keys(v)) { if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue; o[k] = clean(v[k]); } return o; }
+    return typeof v === 'number' && !isFinite(v) ? 0 : v;
+  };
+  st = clean(st);
+  const COLOR = /^#[0-9a-f]{3,8}$/i, ID = /^[A-Za-z0-9_-]{1,40}$/;
+  const color = c => COLOR.test(c || '') ? c : '#8ea3bd';
+  const isAp = c => typeof c === 'string' && Object.prototype.hasOwnProperty.call(AP, c);
+  const numF = (o, ...ks) => ks.forEach(k => { if (o[k] != null) o[k] = Number(o[k]) || 0; });
+  // 2) Yapıyı doğrula
+  st.name = String(st.name || 'Havayolu').slice(0, 24);
+  numF(st, 'cash', 't', 'day', 'tier', 'totalPax', 'seq', 'regSeq', 'float', 'service', 'newsSeen');
+  st.tier = Math.max(1, Math.min(4, Math.round(st.tier) || 1));
+  if (!st.bases.length || !st.bases.every(isAp)) bad('üs');
+  if (st.firstBase && !isAp(st.firstBase)) st.firstBase = st.bases[0];
+  for (const f of st.fleet) {
+    if (!ID.test(f.id) || !Object.prototype.hasOwnProperty.call(AC, f.type)) bad('uçak');
+    f.reg = String(f.reg || '').replace(/[^A-Z0-9-]/gi, '').slice(0, 10);
+    if (f.route != null && !ID.test(f.route)) f.route = null;
+    numF(f, 'age', 'cond', 'leaseDay');
+  }
+  for (const r of st.routes) {
+    if (!ID.test(r.id) || !isAp(r.a) || !isAp(r.b)) bad('rota');
+    r.color = color(r.color);
+    r.planes = (r.planes || []).filter(id => ID.test(id) && st.fleet.some(f => f.id === id));
+    numF(r, 'fareMul', 'age', 'cabin');
+    if (r.last) for (const k of Object.keys(r.last)) r.last[k] = Number(r.last[k]) || 0;
+    if (r.hist) r.hist = r.hist.map(h => ({ d: Number(h.d) || 0, net: Number(h.net) || 0, load: Number(h.load) || 0, share: h.share == null ? null : Number(h.share) || 0, pax: Number(h.pax) || 0 }));
+  }
+  st.history = (st.history || []).map(h => { const o = {}; for (const k of Object.keys(h)) o[k] = Number(h[k]) || 0; return o; });
+  for (const rv of st.rivals || []) {
+    rv.color = color(rv.color);
+    if (!isAp(rv.hub)) bad('rakip');
+    rv.routes = (rv.routes || []).filter(rr => isAp(rr.a) && isAp(rr.b));
+  }
+  for (const n of st.news || []) n.color = color(n.color);
+  for (const e of st.events || []) if (e.airports) e.airports = e.airports.filter(isAp);
+  st.bases = st.bases.filter(isAp);
+  return st;
+}
 
 // ---------- Bağlamsal ipuçları ----------
 let tipShown = null, tipAcc = 0;
