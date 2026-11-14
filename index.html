@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#04070d">
+<title>SkyWeave</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css">
+<link rel="stylesheet" href="css/style.css?v=9">
+</head>
+<body>
+<div id="globe"></div>
+
+<header id="topbar">
+  <div class="brand">
+    <span id="airlineName">SkyWeave</span>
+    <span id="tierBadge" class="badge">Bölgesel</span>
+  </div>
+  <div class="stats">
+    <div class="stat"><span class="lbl">Kasa</span><span id="cash" class="val">$0</span></div>
+    <div class="stat"><span class="lbl" id="dateLbl">—</span><span id="clock" class="val">—</span></div>
+    <button id="btnNews" class="news-btn" aria-label="Haberler">Haberler<span id="newsBadge"></span></button>
+  </div>
+  <div class="speed">
+    <button data-speed="0" aria-label="Duraklat">❚❚</button>
+    <button data-speed="1" class="on">1×</button>
+    <button data-speed="4">4×</button>
+    <button data-speed="16">16×</button>
+  </div>
+</header>
+
+<div id="hint"></div>
+
+<nav id="nav">
+  <button data-panel="routes"><span class="ic">⟿</span>Rotalar</button>
+  <button data-panel="fleet"><span class="ic">✈</span>Filo</button>
+  <button data-panel="license"><span class="ic">★</span>Lisans</button>
+  <button data-panel="rivals"><span class="ic">⚑</span>Rakipler</button>
+  <button data-panel="report"><span class="ic">▤</span>Rapor</button>
+</nav>
+
+<section id="sheet" aria-hidden="true">
+  <div class="grip"></div>
+  <button id="sheetClose" class="close" aria-label="Kapat">✕</button>
+  <div id="sheetBody"></div>
+</section>
+
+<div id="toast"></div>
+
+<div id="start" class="overlay show">
+  <div class="card">
+    <h1>SkyWeave</h1>
+    <p class="sub">Türkiye'de küçük bir bölgesel havayolu kur, dünyaya açıl.</p>
+    <div id="continueBox"></div>
+    <label>Havayolu adı<input id="nameInput" maxlength="24" value="Anadolu Kanatları"></label>
+    <label>İlk üssün<select id="baseInput"></select></label>
+    <button id="btnNew" class="primary big">Yeni oyun</button>
+    <p class="tiny">Döndürmek için sürükle, yakınlaşmak için iki parmakla sıkıştır (fare tekerleği). Bir havalimanına iyice yakınlaşınca gerçek pistleri ve 3B binaları görürsün.</p>
+  </div>
+</div>
+
+<div id="decision" class="overlay">
+  <div class="card">
+    <div class="tag">Karar ver</div>
+    <h2 id="decTitle"></h2>
+    <p id="decText" class="sub"></p>
+    <div id="decOptions" class="list"></div>
+  </div>
+</div>
+
+<div id="gameover" class="overlay">
+  <div class="card">
+    <h2>İflas ettin</h2>
+    <p id="goText"></p>
+    <button id="btnRestart" class="primary big">Yeni oyun</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
+<script type="module" src="js/main.js?v=9"></script>
+</body>
+</html>

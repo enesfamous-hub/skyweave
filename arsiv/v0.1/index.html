@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="tr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#0b1626">
+<title>SkyWeave</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<header id="topbar">
+  <div class="stats">
+    <div class="stat"><span class="lbl">Kasa</span><span id="money" class="val">$0</span></div>
+    <div class="stat"><span class="lbl">Hafta</span><span id="week" class="val">1</span><div class="weekbar"><div id="weekfill"></div></div></div>
+    <div class="stat"><span class="lbl">Yolcu</span><span id="delivered" class="val">0</span></div>
+  </div>
+  <div class="controls">
+    <button id="btnPause" aria-label="Duraklat">❚❚</button>
+    <button id="btnSpeed" aria-label="Hız">1×</button>
+  </div>
+</header>
+<div id="legend"></div>
+
+<footer id="bottombar">
+  <div id="lines"></div>
+  <button id="btnShop" class="primary">Dükkân</button>
+</footer>
+
+<div id="toast"></div>
+
+<div id="start" class="overlay show">
+  <div class="card">
+    <h1>SkyWeave</h1>
+    <p class="sub">Gökyüzünü ör, havayolunu büyüt.</p>
+    <ul class="howto">
+      <li><b>Rota çiz:</b> Bir havaalanından parmağını sürükle, üzerinden geçtiğin havaalanları rotaya eklenir.</li>
+      <li><b>Renkler:</b> Yolcu noktasının rengi, gitmek istediği bölgedir. Aktarmalı da gidebilir.</li>
+      <li><b>Menzil:</b> Uçaklar belli bir mesafeden uzağa uçamaz. Dükkândan yükselt.</li>
+      <li><b>Para:</b> Teslim edilen yolcu para kazandırır, rotalar her hafta gider yazar.</li>
+      <li><b>Dikkat:</b> Bir havaalanı taşar ve kırmızı halka dolarsa oyun biter.</li>
+    </ul>
+    <button id="btnStart" class="primary big">Başla</button>
+  </div>
+</div>
+
+<div id="shop" class="overlay">
+  <div class="card">
+    <h2>Dükkân</h2>
+    <div id="shopItems"></div>
+    <button id="btnShopClose" class="ghost">Kapat</button>
+  </div>
+</div>
+
+<div id="confirm" class="overlay">
+  <div class="card small">
+    <p id="confirmText"></p>
+    <div class="row">
+      <button id="btnConfirmNo" class="ghost">Vazgeç</button>
+      <button id="btnConfirmYes" class="danger">Sil</button>
+    </div>
+  </div>
+</div>
+
+<div id="gameover" class="overlay">
+  <div class="card">
+    <h2>Oyun bitti</h2>
+    <p id="goText"></p>
+    <button id="btnRestart" class="primary big">Yeniden başla</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/topojson-client@3.1.0/dist/topojson-client.min.js"></script>
+<script src="js/airports.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>

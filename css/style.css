@@ -1,0 +1,212 @@
+:root {
+  --bg: #04070d;
+  --panel: rgba(13, 24, 41, 0.88);
+  --panel-solid: #0f1d31;
+  --raise: #172a44;
+  --line: rgba(255,255,255,0.1);
+  --text: #e9eef5;
+  --muted: #8ea3bd;
+  --accent: #ffd166;
+  --good: #06d6a0;
+  --bad: #ef476f;
+  --safe-t: env(safe-area-inset-top, 0px);
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-l: env(safe-area-inset-left, 0px);
+  --safe-r: env(safe-area-inset-right, 0px);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body {
+  margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overscroll-behavior: none; user-select: none; -webkit-user-select: none;
+}
+#globe { position: fixed; inset: 0; }
+#globe canvas { display: block; touch-action: none; }
+
+button {
+  font: inherit; color: var(--text); background: var(--raise);
+  border: 1px solid var(--line); border-radius: 12px;
+  min-height: 44px; min-width: 44px; padding: 0 14px; cursor: pointer;
+}
+button:active { transform: scale(0.97); }
+button:disabled { opacity: 0.4; cursor: default; }
+button.primary { background: var(--accent); color: #17130a; border: none; font-weight: 700; }
+button.danger { background: transparent; color: var(--bad); border-color: rgba(239,71,111,0.5); }
+button.ghost { background: transparent; }
+button.big { width: 100%; min-height: 52px; font-size: 17px; }
+button.sm { min-height: 36px; padding: 0 10px; font-size: 13px; border-radius: 10px; }
+
+/* Üst çubuk */
+#topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 5;
+  padding: calc(8px + var(--safe-t)) calc(10px + var(--safe-r)) 8px calc(12px + var(--safe-l));
+  display: grid; grid-template-columns: 1fr auto; grid-template-areas: "brand speed" "stats stats"; gap: 6px 8px;
+  background: var(--panel);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.25);
+}
+.brand { grid-area: brand; display: flex; align-items: center; gap: 8px; min-width: 0; font-weight: 700; }
+#airlineName { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge { font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 99px; background: rgba(255,209,102,0.15); color: var(--accent); white-space: nowrap; }
+.stats { grid-area: stats; display: flex; gap: 22px; }
+.stat { display: flex; flex-direction: column; }
+.stat .lbl { font-size: 11px; color: var(--muted); }
+.stat .val { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.val.neg { color: var(--bad); }
+.speed { grid-area: speed; display: flex; gap: 4px; }
+.speed button { min-width: 40px; min-height: 36px; padding: 0 8px; font-size: 13px; background: var(--panel-solid); }
+.speed button.on { background: var(--accent); color: #17130a; border: none; font-weight: 700; }
+@media (min-width: 700px) {
+  #topbar { grid-template-columns: auto 1fr auto; grid-template-areas: "brand stats speed"; align-items: center; }
+  .stats { justify-content: center; }
+}
+
+/* İpucu kartı */
+#hint {
+  position: fixed; z-index: 4; left: calc(12px + var(--safe-l)); right: calc(12px + var(--safe-r));
+  top: calc(96px + var(--safe-t)); max-width: 420px;
+  background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--accent);
+  border-radius: 12px; padding: 10px 12px; font-size: 13px; line-height: 1.4; display: none;
+}
+#hint.show { display: block; }
+@media (min-width: 700px) { #hint { top: calc(64px + var(--safe-t)); } }
+
+/* Havaalanı işaretleri */
+#markers { position: fixed; inset: 0; pointer-events: none; z-index: 2; }
+.mk { position: absolute; left: 0; top: 0; display: none; pointer-events: none; }
+.mk .dot {
+  position: absolute; left: -7px; top: -7px; width: 14px; height: 14px; border-radius: 50%;
+  background: #cfd9e6; border: 2px solid #04070d; pointer-events: auto; cursor: pointer;
+}
+.mk .dot::before { content: ""; position: absolute; inset: -12px; border-radius: 50%; } /* geniş dokunma alanı */
+.mk .lbl {
+  position: absolute; left: 10px; top: -8px; font-size: 11px; font-weight: 600; white-space: nowrap;
+  color: #dfe7f1; text-shadow: 0 1px 3px #000, 0 0 2px #000; display: none;
+}
+.mk.label .lbl { display: block; }
+.mk.small .dot { left: -5px; top: -5px; width: 10px; height: 10px; }
+.mk.locked .dot { background: #4b5b70; }
+.mk.locked .lbl { color: #8796aa; }
+.mk.net .dot { background: #fff; }
+.mk.base .dot { background: var(--accent); width: 16px; height: 16px; left: -8px; top: -8px; }
+.mk.base .dot::after { content: "★"; position: absolute; inset: 0; font-size: 10px; line-height: 12px; text-align: center; color: #17130a; }
+.mk.target .dot { box-shadow: 0 0 0 3px rgba(6,214,160,0.75); }
+.mk.blocked .dot { opacity: 0.35; }
+.mk.sel .dot { box-shadow: 0 0 0 3px #fff; }
+
+/* Alt menü */
+#nav {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+  display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px;
+  padding: 8px calc(10px + var(--safe-r)) calc(8px + var(--safe-b)) calc(10px + var(--safe-l));
+  background: var(--panel);
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.25);
+}
+.maplibregl-ctrl-bottom-right, .maplibregl-ctrl-bottom-left { bottom: calc(76px + var(--safe-b)); }
+#nav button { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; min-height: 54px; font-size: 12px; background: var(--panel-solid); }
+#nav button .ic { font-size: 18px; line-height: 1; }
+#nav button.on { border-color: var(--accent); color: var(--accent); }
+
+/* Alt sayfa (bottom sheet) */
+#sheet {
+  position: fixed; z-index: 6; left: 0; right: 0; bottom: 0; max-height: 72vh; overflow-y: auto;
+  background: var(--panel-solid); border-top: 1px solid var(--line); border-radius: 18px 18px 0 0;
+  padding: 10px calc(16px + var(--safe-r)) calc(16px + var(--safe-b)) calc(16px + var(--safe-l));
+  transform: translateY(105%); transition: transform 0.25s ease; box-shadow: 0 -10px 40px rgba(0,0,0,0.5);
+}
+#sheet.open { transform: translateY(0); }
+@media (min-width: 700px) { #sheet { left: auto; right: 12px; bottom: 12px; width: 400px; max-height: calc(100vh - 100px); border-radius: 18px; border: 1px solid var(--line); } }
+.grip { width: 40px; height: 4px; border-radius: 2px; background: rgba(255,255,255,0.2); margin: 0 auto 8px; }
+.close { position: absolute; top: 8px; right: 10px; background: transparent; border: none; font-size: 18px; color: var(--muted); }
+#sheet h3 { margin: 4px 40px 2px 0; font-size: 20px; }
+#sheet h3 small { color: var(--muted); font-weight: 600; font-size: 14px; margin-left: 6px; }
+#sheet h4 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.meta { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.warn { color: var(--accent); font-size: 13px; background: rgba(255,209,102,0.08); border-radius: 10px; padding: 8px 10px; }
+.err { color: var(--bad); font-size: 13px; background: rgba(239,71,111,0.08); border-radius: 10px; padding: 8px 10px; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.kv { background: var(--raise); border-radius: 10px; padding: 8px 10px; }
+.kv .k { font-size: 11px; color: var(--muted); }
+.kv .v { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.list { display: flex; flex-direction: column; gap: 8px; }
+.item {
+  display: flex; align-items: center; gap: 10px; background: var(--raise); border-radius: 12px; padding: 10px 12px;
+  border: 1px solid transparent; text-align: left; width: 100%; min-height: 54px;
+}
+button.item { font-size: 14px; }
+.item .grow { flex: 1; min-width: 0; }
+.item .t { font-weight: 700; }
+.item .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+.item .r { text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.swatch { width: 12px; height: 12px; border-radius: 50%; flex: none; }
+.check { display: flex; align-items: center; gap: 10px; }
+.check input { width: 20px; height: 20px; accent-color: var(--accent); }
+.row { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.row > button { flex: 1; }
+.slider { width: 100%; accent-color: var(--accent); height: 32px; }
+.bars { display: flex; align-items: flex-end; gap: 3px; height: 70px; margin-top: 6px; }
+.bars div { flex: 1; border-radius: 2px 2px 0 0; min-height: 2px; }
+.locked-item { opacity: 0.5; }
+.progress { height: 6px; background: rgba(255,255,255,0.1); border-radius: 3px; overflow: hidden; margin-top: 4px; }
+.progress div { height: 100%; background: var(--accent); }
+
+/* Havaalanı yakın plan */
+#apView { position: fixed; inset: 0; z-index: 8; display: none; background: #000; }
+#apView.show { display: block; }
+#apCanvas { position: absolute; inset: 0; }
+#apCanvas canvas { display: block; touch-action: none; }
+.ap-top {
+  position: absolute; top: 0; left: 0; right: 0; display: flex; align-items: center; gap: 12px;
+  padding: calc(10px + var(--safe-t)) calc(12px + var(--safe-r)) 12px calc(12px + var(--safe-l));
+  background: linear-gradient(rgba(4,8,16,0.75), rgba(4,8,16,0));
+}
+.ap-top button { background: var(--panel); }
+.ap-title { display: flex; flex-direction: column; min-width: 0; text-shadow: 0 1px 3px rgba(0,0,0,0.6); }
+.ap-title b { font-size: 18px; }
+.ap-title span { font-size: 12px; color: #d3dde9; }
+.ap-info {
+  position: absolute; left: calc(12px + var(--safe-l)); right: calc(12px + var(--safe-r)); bottom: calc(12px + var(--safe-b));
+  display: flex; gap: 8px; flex-wrap: wrap; pointer-events: none;
+}
+.ap-info span { background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 7px 12px; font-size: 12px; }
+.ap-info span b { color: var(--accent); }
+
+/* Haberler düğmesi */
+.stats { align-items: center; }
+.news-btn { margin-left: auto; min-height: 36px; padding: 0 12px; font-size: 13px; background: var(--panel-solid); position: relative; }
+#newsBadge:not(:empty) {
+  position: absolute; top: -6px; right: -6px; min-width: 20px; height: 20px; padding: 0 5px; border-radius: 10px;
+  background: var(--bad); color: #fff; font-size: 11px; font-weight: 700; line-height: 20px; text-align: center;
+}
+.ev-days { font-size: 12px; color: var(--muted); white-space: nowrap; }
+
+/* Karar kartı */
+#decision .tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 6px; }
+#decOptions button { display: block; text-align: left; width: 100%; padding: 12px 14px; min-height: 64px; }
+#decOptions button b { display: block; font-size: 15px; }
+#decOptions button span { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
+#decOptions button:first-child { border-color: var(--accent); }
+
+/* Bildirim */
+#toast {
+  position: fixed; z-index: 9; left: 50%; bottom: calc(86px + var(--safe-b));
+  transform: translate(-50%, 16px); opacity: 0; transition: all 0.25s; pointer-events: none;
+  background: var(--raise); border: 1px solid var(--line); padding: 10px 16px; border-radius: 12px; font-size: 14px;
+  max-width: calc(100% - 32px); text-align: center;
+}
+#toast.show { opacity: 1; transform: translate(-50%, 0); }
+
+/* Açılış / iflas */
+.overlay { position: fixed; inset: 0; z-index: 10; display: none; align-items: center; justify-content: center; background: rgba(2,5,10,0.6); padding: 16px; }
+.overlay.show { display: flex; }
+.card { width: 100%; max-width: 400px; max-height: 100%; overflow-y: auto; background: var(--panel-solid); border: 1px solid var(--line); border-radius: 18px; padding: 22px; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
+.card h1 { margin: 0; font-size: 34px; letter-spacing: -0.02em; }
+.card h2 { margin: 0 0 12px; }
+.card .sub { margin: 4px 0 18px; color: var(--muted); }
+.card label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+.card input, .card select {
+  display: block; width: 100%; margin-top: 6px; min-height: 46px; padding: 0 12px; font: inherit; font-size: 16px;
+  color: var(--text); background: var(--raise); border: 1px solid var(--line); border-radius: 12px;
+}
+.card .tiny { font-size: 12px; color: var(--muted); margin: 12px 0 0; text-align: center; }
+#continueBox button { margin-bottom: 16px; }
