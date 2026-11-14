@@ -1,4 +1,4 @@
-# SkyWeave — Tasarım Belgesi (v0.7)
+# SkyWeave — Tasarım Belgesi (v0.8)
 
 > Türkiye'de küçük bir bölgesel havayolu olarak başla, dünyanın dört bir yanına uçan bir dev ol.
 
@@ -87,8 +87,37 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **Çevrimdışı kazanç:** Oyun kapalıyken ya da telefonda arka plandayken oyun saati durur. Dönüşte son 7 günün ortalama kârı ve yolcusu üzerinden hesaplanır: her gerçek dakika = 0,25 oyun günü, verim %50 (yükseltmeyle %100'e çıkar), en fazla 8 saat (yükseltmeyle 18 saate çıkar).
 - **Yükseltmeler (kalıcı, seviyeli, fiyat ×2,3):** Yakıt verimliliği (−%4/sv), Hızlı yer hizmeti (yerde bekleme −%8/sv), Ekip eğitimi (−%4/sv), Bakım hangarı (kira ve bakım −%6/sv), VIP salon (itibar +%3/sv), Açılış kampanyaları (yeni hat daha hızlı dolar), Gece vardiyası müdürü (çevrimdışı kazanç), Sadakat programı (talep +%3/sv, Ulusal lisans).
 - **Görevler:** 25 ödüllü görev, aynı anda 3 aktif. Tamamlanınca bildirim ve menüde kırmızı nokta çıkar, ödül elle alınır.
-- **Otomasyon (müdürler):** Gelir müdürü (haftalık fiyat ayarı), Filo müdürü (boştaki uçağı talebi yüksek hatta atar), Ağ planlayıcı (boşta uçak kalırsa yeni hat açar, Ulusal lisans). İşe alma ücreti ve günlük maaş var, açılıp kapatılabilir.
+- **Otomasyon (müdürler):** Gelir müdürü (haftalık fiyat ayarı), Filo müdürü (boştaki uçağı talebi yüksek hatta atar), Ağ planlayıcı (boşta uçak kalırsa yeni hat açar, Ulusal lisans), Teknik müdür (bakım). İşe alma ücreti ve günlük maaş var, açılıp kapatılabilir.
 - **Holding (prestij):** Kıtasal lisans ve en az 25 M$ şirket değeriyle açılır. Yıldız = ⌊√(şirket değeri / 25 M$)⌋. Her yıldız kalıcı olarak gelir +%5 ve başlangıç kasası +1 M$ verir. Her şey sıfırlanır; yıldızlar ve havayolu adı kalır.
+
+### Aktarmalı yolcu (hub)
+- Bir üssüne bağlı iki hattın uçları arasında (örneğin Kars → İstanbul → Londra) yolcular üssünde aktarma yapar. Sadece üslerde olur; üs kurmanın stratejik anlamı budur.
+- Aktarma talebi = iki uç arasındaki talep × 0,45 × dolambaç etkisi (iki bacak toplamı direkt mesafenin 1,3 katını aşarsa düşer) × fiyat etkisi × itibar. Rakibin o iki şehir arasında direkt uçuşu varsa talep %70 düşer. Oyuncunun direkt hattı varsa aktarma hesaplanmaz.
+- Aktarma yolcusu yalnızca boş ekonomi koltuklarını kullanır (yerel yolcunun yerini almaz). Bilet: direkt mesafenin normal biletinin %85'i, gelir hatlara mesafeye göre bölünür.
+- **Aktarma merkezi** yükseltmesi (Ulusal lisans): aktarma talebi +%15/sv.
+- Görünüm: üs ekranında "Aktarma merkezi" kutusu, hat ekranında aktarmalı yolcu / talep, Rapor özetinde en çok aktarma yapılan yollar.
+
+### Kabin sınıfları ve hizmet
+- Hat başına kabin düzeni: Tek sınıf, Karma (kabinin %15'i business), Premium (%30). Bir business koltuğu 2,5 ekonomi koltuğu yer kaplar, bileti ekonominin 3,2 katıdır.
+- Business talebi: pazar talebi × business eğilimi (uluslararası, uzun ve büyük şehirler arası hatlarda yüksek, %5–21) × hizmet etkisi × VIP salon. Fiyata daha az duyarlı.
+- Hizmet seviyesi (Rapor → Hizmet): Ekonomik (−3 $/yolcu, itibar −%8), Standart, Konforlu (+6 $, +%7), Premium (+14 $, +%13). Business talebini de etkiler.
+
+### Uçak yaşı, durumu ve bakım
+- Her uçağın yaşı ve durumu (%) var. Uçan uçak her gün yıpranır (yaşlı uçak daha hızlı). Durum %65'in altına inerse arıza riski başlar: uçak 2–4 gün yerde kalır, onarım parası ödenir, itibar biraz düşer.
+- Yaş etkisi: yılda yakıt +%0,6, sahipli uçak bakım gideri +%4. Filonun ortalama yaşı 8'i ya da durumu %70'in altına düşerse itibar azalır.
+- Ağır bakım: fiyatın %1'i (yaşla artar), 4 gün yerde kalır, durumu yeniler (yaşlı uçak tam yenilenmez).
+- Satış değeri yaşa ve duruma göre: sıfır uçak %75'ten başlar, yılda %6 düşer.
+- **İkinci el pazarı:** 14 günde bir yenilenen 5 uçak (3–22 yaş). Daha ucuz alınır ve kiralanır.
+- **Teknik müdür:** durumu %60'ın altına düşen uçakları sırayla bakıma alır.
+
+### Finans (Rapor → Finans)
+- **Şirket değeri** = kasa + sahipli uçakların değeri + son 7 günün ortalama kârı × 180 − borç.
+- **Banka kredisi:** limit şirket değerinin (borç dahil) %60'ı, en az 4 M$. Vade 180/360/720 gün; faiz borç oranına ve lisansa göre (yaklaşık %4–19). Eşit günlük taksit, istediğin zaman kapatılabilir. Kredi notu AAA–CCC.
+- **Hisse:** Ulusal lisans ve en az 20 M$ şirket değeriyle halka arz. %10'luk dilimler, en fazla %40. Ortaklar günlük kârın %35'i × payları kadar temettü alır. Holding yıldızları senin payına göre hesaplanır. Hisseler %10 primle geri alınabilir.
+
+### Slotlar (havalimanı kapasitesi)
+- Büyük havalimanlarında (nüfus ≥ 3 milyon ya da büyük turistik) günlük kalkış hakkı sınırlı: üsse 40, diğerlerine 10 ücretsiz. Her paket +5 kalkış; fiyat nüfus ve bölgeyle artar, her pakette ×1,25.
+- Slot aşılırsa o havalimanındaki seferler orantılı olarak azalır. Hat açarken ve hat ekranında uyarı çıkar. Filo müdürü ve ağ planlayıcı slotu dolu havalimanına uçak koymaz.
 
 ### İflas
 - Kasa eksiye düşebilir (günlük faiz işler). −10 M$'ın altına inerse iflas edersin ve oyun biter.
@@ -101,7 +130,8 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **v0.3 (şimdi):** Harita MapLibre küre görünümüne geçti. Yakınlaştıkça gerçek harita ve havalimanında OpenStreetMap verisiyle gerçek pistler, taksi yolları, apronlar ve 3B binalar (terminal, kule, hangar). Yakınlaşınca kamera otomatik eğilir. Gece bölgesi harita üzerinde gölge olarak görünür. Ayrı yakın plan ekranı kaldırıldı (kodu `arsiv/v0.3` içinde).
 - **v0.3.1 (tamam):** Havalimanına yakınlaşınca 3B uçaklar: OpenStreetMap'teki gerçek kapılara park eder (kapı yoksa apron üzerine), gerçek pistlere iner ve kalkar, taksi yollarından geçer, geri itilir (pushback). Senin uçakların sarı kuyruklu, sayıları o havalimanındaki sefer payına göre.
 - **v0.6 (tamam):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
-- **v0.7 (şimdi):** İdle çekirdeği: çevrimdışı kazanç, yükseltmeler, görevler, otomasyon (müdürler), Holding (prestij). Bkz. "İlerleme" bölümü.
+- **v0.8 (şimdi):** Derinlik: aktarmalı yolcu, kabin sınıfları ve hizmet, uçak yaşı ve bakım, ikinci el pazarı, kredi ve hisse, slotlar.
+- **v0.7 (tamam):** İdle çekirdeği: çevrimdışı kazanç, yükseltmeler, görevler, otomasyon (müdürler), Holding (prestij). Bkz. "İlerleme" bölümü.
 - **v0.5 (tamam):** Rakip havayolları. Bkz. "Rakipler" bölümü.
 - **v0.6:** Daha fazla havaalanı (OurAirports verisi), itibar ve hizmet kalitesi, ses.
 - **Sonra:** İnternete yayın, isteğe bağlı yapay zekâ ile haber metinleri (Haiku).
@@ -120,6 +150,7 @@ js/traffic3d.js    havalimanında 3B uçaklar: kapılarda park, iniş, taksi, ka
 js/rivals.js       rakip havayolları ve haftalık yapay zekâ kararları
 js/events.js       olaylar, haberler ve oyuncu kararları
 js/progress.js     yükseltmeler, görevler, müdürler, çevrimdışı kazanç, holding
+js/depth.js        uçak yaşlanması ve bakım, ikinci el pazarı, kredi ve hisse
 js/main.js         oyun döngüsü, arayüz, kayıt
 arsiv/v0.1         ilk prototip
 ```

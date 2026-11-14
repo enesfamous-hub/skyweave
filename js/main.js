@@ -6,6 +6,7 @@ import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
 import { dailyEvents, decisionView, decide, describeEvent } from './events.js';
 import * as P from './progress.js';
+import * as D from './depth.js';
 
 const { AP, AC } = sim;
 const SAVE_KEY = 'skyweave-save-v2';
@@ -59,7 +60,8 @@ const fleetById = id => S.fleet.find(f => f.id === id);
 // ---------- Durum ve kayıt ----------
 function newState(name, base, legacy = null) {
   return { v: 2, name, t: 0, day: 0, cash: 15e6, tier: 1, bases: [base], fleet: [], routes: [], totalPax: 0, history: [], seq: 1, regSeq: 0, over: false, rivals: [], news: [], events: [], newsSeen: 0,
-    upgrades: {}, managers: {}, goalsDone: [], goalsNotified: [], legacy, lastSeen: Date.now(), cashBonus: 0 };
+    upgrades: {}, managers: {}, goalsDone: [], goalsNotified: [], legacy, lastSeen: Date.now(), cashBonus: 0,
+    service: 1, slots: {}, loans: [], float: 0, checks: 0, used: null };
 }
 function save() { try { if (S) S.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
 function loadSave() {
@@ -191,10 +193,19 @@ function openAirport(ap) {
         <div class="kv"><div class="k">Bugünkü sezon etkisi</div><div class="v ${sign(season - 1)}">${season >= 1 ? '+' : ''}${Math.round((season - 1) * 100)}%</div></div>
         <div class="kv"><div class="k">Buradaki rotaların</div><div class="v">${routes.length}</div></div>
       </div>
+      ${slotBox(ap, locked)}
+      ${base ? hubBox(ap) : ''}
       ${routes.length ? '<h4>Rotalar</h4><div class="list" id="apRoutes"></div>' : ''}
       ${rivalsHere(ap)}
       <div class="row" id="apActions"></div>`;
     if (routes.length) routeList(body.querySelector('#apRoutes'), routes);
+    const sb = body.querySelector('#slotBuy');
+    if (sb) sb.onclick = () => {
+      const price = sim.slotPackPrice(S, ap.c);
+      if (S.cash < price) return;
+      S.cash -= price; S.slots[ap.c] = sim.slotPacks(S, ap.c) + 1;
+      toast(`${ap.n}: +${sim.SLOT_PACK} günlük kalkış hakkı alındı.`); save(); updateHUD(); refreshSheet();
+    };
     const act = body.querySelector('#apActions');
     const view = document.createElement('button');
     view.textContent = 'Havalimanına yakınlaş';
@@ -218,6 +229,30 @@ function openAirport(ap) {
       }
     }
   });
+}
+
+// Slot (kalkış hakkı) kutusu
+function slotBox(ap, locked) {
+  if (!sim.slotControlled(ap)) return '<p class="meta" style="margin-top:10px">Slot sınırı yok: istediğin kadar sefer koyabilirsin.</p>';
+  const cap = sim.slotCap(S, ap.c), used = sim.slotUsed(S, ap.c), over = used > cap + 0.01;
+  return `<h4>Slotlar (günlük kalkış hakkı)</h4>
+    <div class="item" style="flex-direction:column;align-items:stretch">
+      <div style="display:flex;justify-content:space-between"><span class="t">${used.toFixed(1)} / ${cap} kalkış</span><span class="s">${S.bases.includes(ap.c) ? `üs: ${sim.BASE_SLOTS} ücretsiz` : `${sim.FREE_SLOTS} ücretsiz`}</span></div>
+      <div class="progress"><div style="width:${Math.min(100, used / cap * 100)}%;${over ? 'background:var(--bad)' : ''}"></div></div>
+      ${over ? `<div class="s neg" style="margin-top:6px">Slot yetmiyor: buradaki seferlerin %${Math.round(100 - cap / used * 100)}'i yapılamıyor.</div>` : ''}
+      ${locked ? '' : `<button class="sm" id="slotBuy" style="margin-top:8px" ${S.cash < sim.slotPackPrice(S, ap.c) ? 'disabled' : ''}>+${sim.SLOT_PACK} slot satın al (${money(sim.slotPackPrice(S, ap.c))})</button>`}
+    </div>`;
+}
+
+// Aktarma merkezi kutusu (üsler)
+function hubBox(ap) {
+  const n = (S.hubPax || {})[ap.c] || 0;
+  const flows = (S.transfers || []).filter(f => f.h === ap.c).slice(0, 5);
+  return `<h4>Aktarma merkezi</h4>
+    <p class="meta">Bu üsse bağlanan iki hattın uçları arasında yolcular burada aktarma yapar. Hatlardaki boş koltukları doldururlar.</p>
+    <div class="grid2"><div class="kv"><div class="k">Dün aktarma yapan</div><div class="v">${num(n)}</div></div>
+      <div class="kv"><div class="k">Buraya bağlı hat</div><div class="v">${S.routes.filter(r => r.a === ap.c || r.b === ap.c).length}</div></div></div>
+    ${flows.length ? `<div class="list" style="margin-top:8px">${flows.map(f => `<div class="item" style="min-height:0"><div class="grow"><div class="t">${AP[f.x].n} → ${AP[f.y].n}</div></div><div class="r">${num(f.pax)}<div class="s">yolcu/gün</div></div></div>`).join('')}</div>` : ''}`;
 }
 
 // ---------- Havalimanına yakınlaş ----------
@@ -284,7 +319,7 @@ function openPlanner(a, b) {
           <div class="kv"><div class="k">Günlük kâr (kira dahil)</div><div class="v ${sign(e.net)}">${money(e.net)}</div></div>
           <div class="kv"><div class="k">Beklenen pazar payın</div><div class="v">${pct(e.share)}</div></div>
         </div>
-        <p class="meta" style="margin-top:8px">Yeni rotada talep %40'tan başlar, 30 günde tam seviyeye çıkar.</p>` : '') + compList(e.comps);
+        <p class="meta" style="margin-top:8px">Yeni rotada talep %40'tan başlar, 30 günde tam seviyeye çıkar.</p>` : '') + slotWarn([a, b], [...chosen].reduce((s, id) => s + sim.planeDeps(S, d, fleetById(id).type), 0)) + compList(e.comps);
       body.querySelector('#pkOpen').disabled = !chosen.size;
     };
     body.querySelector('#pkFare').oninput = e => { fareMul = e.target.value / 100; est(); };
@@ -292,6 +327,18 @@ function openPlanner(a, b) {
     body.querySelector('#pkOpen').onclick = () => createRoute(a, b, [...chosen], fareMul);
     est();
   });
+}
+
+// Eklenecek kalkışlar slotlara sığmıyorsa uyarı
+function slotWarn(aps, need) {
+  if (!need) return '';
+  const out = [];
+  for (const ap of aps) {
+    if (!sim.slotControlled(ap)) continue;
+    const free = sim.slotFree(S, ap.c);
+    if (need > free + 0.01) out.push(`${ap.n}: günde ${need.toFixed(1)} kalkış gerekir, boş slot ${Math.max(0, free).toFixed(1)}`);
+  }
+  return out.length ? `<p class="err" style="margin-top:8px">Slot yetmiyor. ${out.join(' · ')}. Fazla seferler yapılamaz; havalimanı ekranından slot satın al.</p>` : '';
 }
 
 function addRoute(a, b, planeIds, fareMul = 1) {
@@ -343,6 +390,9 @@ function openRoute(r) {
       <div id="rtStats"></div>
       <h4>Bilet fiyatı: <span id="rtFareLbl"></span></h4>
       <input type="range" class="slider" id="rtFare" min="60" max="160" step="5" value="${Math.round(r.fareMul * 100)}">
+      <h4>Kabin düzeni</h4>
+      <div class="tabs" id="rtCabin">${sim.CABINS.map(c => `<button data-c="${c.id}" class="${(r.cabin || 0) === c.id ? 'on' : ''}">${c.name}</button>`).join('')}</div>
+      <p class="meta" id="rtCabinNote"></p>
       <h4>Bu rotadaki uçaklar</h4><div class="list" id="rtPlanes"></div>
       <h4>Boştaki uçaklar</h4><div class="list" id="rtIdle"></div>
       <div class="row"><button id="rtClose" class="danger">Rotayı kapat</button></div>`;
@@ -356,7 +406,12 @@ function openRoute(r) {
           <div class="kv"><div class="k">Talep / koltuk (yön)</div><div class="v">${num(e.demand)} / ${num(e.seats)}</div></div>
           <div class="kv"><div class="k">Günlük kâr (kira dahil)</div><div class="v ${sign(e.net)}">${money(e.net)}</div></div>
           ${e.comps.length ? `<div class="kv"><div class="k">Pazar payın</div><div class="v">${pct(e.share)}</div></div>` : ''}
+          ${e.bSeats ? `<div class="kv"><div class="k">Business doluluk · bilet</div><div class="v">${pct(e.bizLoad)} · ${money(e.bFare)}</div></div>` : ''}
+          ${r.last && r.last.tdem ? `<div class="kv"><div class="k">Dün aktarmalı yolcu / talep</div><div class="v">${num(r.last.tpax)} / ${num(r.last.tdem)}</div></div>` : ''}
+          ${r.last ? `<div class="kv"><div class="k">Dünkü kâr (aktarma dahil)</div><div class="v ${sign(r.last.net)}">${money(r.last.net)}</div></div>` : ''}
         </div>
+        ${r.last && r.last.tdem > r.last.tpax * 1.3 + 20 ? '<p class="warn" style="margin-top:8px">Aktarmalı yolcular yer bulamıyor: aktarma yolcuları yalnızca boş koltukları kullanır. Uçak eklersen fazla koltukları onlar doldurur.</p>' : ''}
+        ${e.slotLimited ? '<p class="err" style="margin-top:8px">Slot yetmiyor: seferlerin bir kısmı yapılamıyor. Uç havalimanlarından slot satın al.</p>' : ''}
         ${routeEventWarnings(r)}
         ${compList(e.comps)}
         ${sim.rampP(S, r.age) < 1 ? `<p class="meta" style="margin-top:8px">Rota yeni: talep şu an tam seviyenin %${Math.round(100 * sim.rampP(S, r.age))}'ında.</p>` : ''}
@@ -365,6 +420,12 @@ function openRoute(r) {
     };
     body.querySelector('#rtFare').oninput = e => { r.fareMul = e.target.value / 100; stats(); };
     body.querySelector('#rtFare').onchange = () => save();
+    const cabNote = () => {
+      const c = sim.cabinOf(r), e = sim.routeEcon(r, S.fleet, doyNow(), false, S);
+      body.querySelector('#rtCabinNote').textContent = `${c.desc}. Yön başına günde ${num(e.seats)} ekonomi${e.bSeats ? ` + ${num(e.bSeats)} business` : ''} koltuk. Business bileti ekonominin ${String(sim.BIZ_FARE).replace('.', ',')} katı, ama bir business koltuğu ${String(sim.BIZ_SPACE).replace('.', ',')} ekonomi koltuğu yer kaplar.`;
+    };
+    body.querySelectorAll('#rtCabin button').forEach(btn => btn.onclick = () => { r.cabin = Number(btn.dataset.c); save(); refreshSheet(); });
+    cabNote();
 
     const pl = body.querySelector('#rtPlanes');
     if (!r.planes.length) pl.innerHTML = '<p class="warn">Bu rotada uçak yok, sefer yapılmıyor.</p>';
@@ -372,7 +433,7 @@ function openRoute(r) {
       const f = fleetById(id), ac = AC[f.type];
       const row = document.createElement('div');
       row.className = 'item';
-      row.innerHTML = `<div class="grow"><div class="t">${ac.name}</div><div class="s">${f.reg} · günde ${sim.rtPerDay(d, ac).toFixed(1)} gidiş-dönüş</div></div><button class="sm">Çıkar</button>`;
+      row.innerHTML = `<div class="grow"><div class="t">${ac.name}</div><div class="s">${f.reg} · günde ${sim.rtPerDay(d, ac).toFixed(1)} gidiş-dönüş · ${planeStatus(f)}</div></div><button class="sm">Çıkar</button>`;
       row.querySelector('button').onclick = () => { r.planes = r.planes.filter(x => x !== id); f.route = null; save(); syncGlobe(); refreshSheet(); };
       pl.appendChild(row);
     }
@@ -460,6 +521,7 @@ function showDecision() {
     b.innerHTML = `<b>${o.label}</b><span>${o.desc}${o.disabled ? ' (kasada yeterli para yok)' : ''}</span>`;
     b.disabled = o.disabled;
     b.onclick = () => {
+      if (!S.pendingDecision) { $('decision').classList.remove('show'); return; }
       const news = decide(S, i);
       pushNews(news);
       $('decision').classList.remove('show');
@@ -516,67 +578,117 @@ function openRoutes() {
   });
 }
 
+// Uçağın kısa durumu: yaş, kondisyon, bakım
+const yrs = f => sim.ageYears(f).toLocaleString('tr-TR', { maximumFractionDigits: 1, minimumFractionDigits: f.age ? 1 : 0 });
+function planeStatus(f) {
+  if (sim.isDown(S, f)) return `<span class="neg">${f.down.why === 'check' ? 'Bakımda' : 'Arızalı'} (${f.down.until - S.day} gün)</span>`;
+  const c = Math.round(sim.condOf(f));
+  return `${yrs(f)} yaş · durum <span class="${c < 60 ? 'neg' : c < 75 ? 'warnc' : ''}">%${c}</span>`;
+}
+
 function openFleet() {
   openSheet('fleet', body => {
-    const fixed = S.fleet.reduce((s, f) => s + sim.fixedPerDay(f), 0);
-    body.innerHTML = `<h3>Filo</h3><div class="meta">${S.fleet.length} uçak · günlük kira ve bakım ${money(fixed)}</div>
-      <div class="list" id="fList"></div><div class="row"><button id="fMarket" class="primary">Uçak pazarı</button></div>`;
+    const fixed = S.fleet.reduce((s, f) => s + sim.playerFixed(S, f), 0);
+    const avgAge = S.fleet.length ? S.fleet.reduce((s, f) => s + sim.ageYears(f), 0) / S.fleet.length : 0;
+    const q = sim.fleetQuality(S);
+    body.innerHTML = `<h3>Filo</h3><div class="meta">${S.fleet.length} uçak · günlük kira ve bakım ${money(fixed)} · ortalama yaş ${avgAge.toFixed(1).replace('.', ',')}</div>
+      ${q < 0.999 ? `<p class="warn">Filonun yaşı ve durumu itibarını %${Math.round((1 - q) * 100)} düşürüyor. Ağır bakım yaptır ya da yaşlı uçakları yenile.</p>` : ''}
+      <div class="list" id="fList"></div><div class="row"><button id="fMarket" class="primary">Uçak pazarı</button></div>
+      <p class="meta" style="margin-top:10px">Uçan uçaklar yıpranır. Durumu %65'in altına düşen uçak arıza yapabilir. Ağır bakım ${sim.CHECK_DAYS} gün sürer ve durumu yeniler; yaşlı uçak tam yenilenmez.</p>`;
     const list = body.querySelector('#fList');
     if (!S.fleet.length) list.innerHTML = '<p class="meta">Filonda henüz uçak yok. Uçak pazarından kiralayarak başla.</p>';
     for (const f of S.fleet) {
       const ac = AC[f.type], r = S.routes.find(x => x.id === f.route);
+      const val = sim.planeValue(f), cc = sim.checkCost(f), c = sim.condOf(f);
       const row = document.createElement('div');
       row.className = 'item';
-      row.innerHTML = `<div class="grow"><div class="t">${ac.name} <span class="s">${f.reg}</span></div>
-        <div class="s">${f.leased ? 'Kiralık' : 'Sahipli'} · ${r ? `${r.a} ⇄ ${r.b}` : 'Boşta'} · ${money(sim.fixedPerDay(f))}/gün</div></div>
-        <button class="sm">${f.leased ? 'İade et' : 'Sat ' + money(ac.price * 1e6 * 0.7)}</button>`;
-      row.querySelector('button').onclick = () => {
-        const msg = f.leased ? `${f.reg} kiralayana iade edilsin mi?` : `${f.reg} ${money(ac.price * 1e6 * 0.7)} karşılığında satılsın mı?`;
+      row.style.flexWrap = 'wrap';
+      row.innerHTML = `<div class="grow"><div class="t">${ac.name} <span class="s">${f.reg} · ${f.leased ? 'kiralık' : 'sahipli'}</span></div>
+        <div class="s">${r ? `${r.a} ⇄ ${r.b}` : 'Boşta'} · ${money(sim.playerFixed(S, f))}/gün</div>
+        <div class="s">${planeStatus(f)}</div>
+        <div class="progress"><div style="width:${c}%;background:${c < 60 ? 'var(--bad)' : c < 75 ? 'var(--accent)' : 'var(--good)'}"></div></div></div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="sm" data-a="mx" ${D.canCheck(S, f) ? '' : 'disabled'}>Bakım ${money(cc)}</button>
+          <button class="sm" data-a="sell">${f.leased ? 'İade et' : 'Sat ' + money(val)}</button></div>`;
+      row.querySelector('[data-a=mx]').onclick = () => {
+        if (!confirm(`${f.reg} ${sim.CHECK_DAYS} gün ağır bakıma girsin mi? Bedel ${money(cc)}. Durumu %${Math.round(sim.checkRestores(f))}'e çıkacak.`)) return;
+        if (D.startCheck(S, f)) { toast(`${f.reg} bakıma alındı.`); save(); updateHUD(); syncGlobe(); refreshSheet(); checkGoals(); }
+      };
+      row.querySelector('[data-a=sell]').onclick = () => {
+        const msg = f.leased ? `${f.reg} kiralayana iade edilsin mi?` : `${f.reg} ${money(val)} karşılığında satılsın mı?`;
         if (!confirm(msg + (r ? ` Uçak ${r.a} ⇄ ${r.b} rotasından çıkarılacak.` : ''))) return;
         if (r) r.planes = r.planes.filter(x => x !== f.id);
-        if (!f.leased) S.cash += ac.price * 1e6 * 0.7;
+        if (!f.leased) S.cash += val;
         S.fleet = S.fleet.filter(x => x !== f);
         save(); syncGlobe(); refreshSheet();
       };
       list.appendChild(row);
     }
-    body.querySelector('#fMarket').onclick = openMarket;
+    body.querySelector('#fMarket').onclick = () => openMarket();
   });
 }
 
-function openMarket() {
+let marketTab = 'new';
+function openMarket(tab) {
+  if (tab) marketTab = tab;
   openSheet('market', body => {
-    body.innerHTML = `<h3>Uçak pazarı</h3><div class="meta">Kiralama: başlangıçta 1 aylık kira, sonra günlük kira. Satın alma: peşin ödeme, düşük bakım gideri.</div><div class="list" id="mList"></div>
+    body.innerHTML = `<h3>Uçak pazarı</h3>
+      <div class="tabs"><button data-t="new" class="${marketTab === 'new' ? 'on' : ''}">Sıfır</button><button data-t="used" class="${marketTab === 'used' ? 'on' : ''}">İkinci el</button></div>
+      <div class="meta">${marketTab === 'new'
+        ? 'Kiralama: başlangıçta 1 aylık kira, sonra günlük kira. Satın alma: peşin ödeme, düşük bakım gideri.'
+        : `Ucuz ama yaşlı uçaklar: daha çok yakıt yakar, bakımı pahalıdır, itibarı düşürebilir. Liste ${14 - (S.day - (S.usedDay || 0))} gün sonra yenilenir.`}</div>
+      <div class="list" id="mList"></div>
       <div class="row"><button id="mBack" class="ghost">Filoya dön</button></div>`;
+    body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { marketTab = b.dataset.t; refreshSheet(); });
     const list = body.querySelector('#mList');
-    for (const ac of AIRCRAFT) {
-      const locked = ac.tier > S.tier;
-      const lease = sim.leasePerDay(ac), deposit = lease * 30, price = ac.price * 1e6;
-      const row = document.createElement('div');
-      row.className = 'item' + (locked ? ' locked-item' : '');
-      row.style.flexWrap = 'wrap';
-      row.innerHTML = `<div class="grow"><div class="t">${ac.maker} ${ac.name}</div>
-        <div class="s">${ac.seats} koltuk · ${num(ac.range)} km menzil · ${ac.speed} km/s</div>
-        ${locked ? `<div class="s">🔒 ${TIERS[ac.tier - 1].name} lisansı gerekir</div>` : `<div class="s">Kira ${money(lease)}/gün · fiyat ${money(price)}</div>`}</div>
-        ${locked ? '' : `<div style="display:flex;gap:6px"><button class="sm" data-a="lease" ${S.cash < deposit ? 'disabled' : ''}>Kirala ${money(deposit)}</button>
-        <button class="sm" data-a="buy" ${S.cash < price ? 'disabled' : ''}>Satın al</button></div>`}`;
-      if (!locked) {
-        row.querySelector('[data-a=lease]').onclick = () => acquire(ac, true, deposit);
-        row.querySelector('[data-a=buy]').onclick = () => acquire(ac, false, price);
+    if (marketTab === 'new') {
+      for (const ac of AIRCRAFT) {
+        const locked = ac.tier > S.tier;
+        const lease = sim.leasePerDay(ac), deposit = lease * 30, price = ac.price * 1e6;
+        const row = document.createElement('div');
+        row.className = 'item' + (locked ? ' locked-item' : '');
+        row.style.flexWrap = 'wrap';
+        row.innerHTML = `<div class="grow"><div class="t">${ac.maker} ${ac.name}</div>
+          <div class="s">${ac.seats} koltuk · ${num(ac.range)} km menzil · ${ac.speed} km/s</div>
+          ${locked ? `<div class="s">🔒 ${TIERS[ac.tier - 1].name} lisansı gerekir</div>` : `<div class="s">Kira ${money(lease)}/gün · fiyat ${money(price)}</div>`}</div>
+          ${locked ? '' : `<div style="display:flex;gap:6px"><button class="sm" data-a="lease" ${S.cash < deposit ? 'disabled' : ''}>Kirala ${money(deposit)}</button>
+          <button class="sm" data-a="buy" ${S.cash < price ? 'disabled' : ''}>Satın al</button></div>`}`;
+        if (!locked) {
+          row.querySelector('[data-a=lease]').onclick = () => acquire(ac, true, deposit);
+          row.querySelector('[data-a=buy]').onclick = () => acquire(ac, false, price);
+        }
+        list.appendChild(row);
       }
-      list.appendChild(row);
+    } else {
+      if (!S.used || !S.used.length) list.innerHTML = '<p class="meta">Şu an ikinci el uçak yok. Liste yakında yenilenecek.</p>';
+      for (const u of S.used || []) {
+        const ac = AC[u.type], deposit = u.leaseDay * 30;
+        const row = document.createElement('div');
+        row.className = 'item';
+        row.style.flexWrap = 'wrap';
+        row.innerHTML = `<div class="grow"><div class="t">${ac.maker} ${ac.name} <span class="s">${2027 + Math.floor(S.day / 365) - Math.round(u.age / 365)} üretimi</span></div>
+          <div class="s">${(u.age / 365).toFixed(1).replace('.', ',')} yaş · durum %${u.cond} · ${ac.seats} koltuk</div>
+          <div class="s">Kira ${money(u.leaseDay)}/gün <span class="pos">(sıfırı ${money(sim.leasePerDay(ac))})</span> · fiyat ${money(u.price)} <span class="pos">(sıfırı ${money(ac.price * 1e6)})</span></div></div>
+          <div style="display:flex;gap:6px"><button class="sm" data-a="lease" ${S.cash < deposit ? 'disabled' : ''}>Kirala ${money(deposit)}</button>
+          <button class="sm" data-a="buy" ${S.cash < u.price ? 'disabled' : ''}>Satın al</button></div>`;
+        row.querySelector('[data-a=lease]').onclick = () => acquire(ac, true, deposit, u);
+        row.querySelector('[data-a=buy]').onclick = () => acquire(ac, false, u.price, u);
+        list.appendChild(row);
+      }
     }
     body.querySelector('#mBack').onclick = openFleet;
   });
 }
 
-function acquire(ac, leased, cost) {
+function acquire(ac, leased, cost, used = null) {
   if (S.cash < cost) return toast('Kasada yeterli para yok.');
   S.cash -= cost;
-  const f = { id: 'F' + S.seq++, type: ac.id, leased, reg: nextReg(), route: null };
+  const f = { id: 'F' + S.seq++, type: ac.id, leased, reg: nextReg(), route: null, age: used ? used.age : 0, cond: used ? used.cond : 100 };
+  if (used && leased) f.leaseDay = used.leaseDay;
+  if (used) S.used = S.used.filter(x => x !== used);
   S.fleet.push(f);
   save(); updateHUD(true); refreshSheet();
-  toast(`${ac.name} (${f.reg}) filona katıldı${leased ? ' (kiralık)' : ''}.`);
+  toast(`${ac.name} (${f.reg}) filona katıldı${leased ? ' (kiralık)' : ''}${used ? ', ikinci el' : ''}.`);
 }
 
 function renderLicense(body) {
@@ -689,13 +801,13 @@ function renderHolding(body) {
   const st = P.starsFor(S), have = P.legacyStars(S), can = P.canPrestige(S);
   body.innerHTML = `<div class="meta">Holding kurduğunda şirketin sıfırdan başlar ama kazandığın yıldızlar kalıcıdır.</div>
     <div class="grid2">
-      <div class="kv"><div class="k">Şirket değeri</div><div class="v">${money(P.companyValue(S))}</div></div>
+      <div class="kv"><div class="k">Senin payının değeri</div><div class="v">${money(P.ownerValue(S))}</div></div>
       <div class="kv"><div class="k">Kazanacağın yıldız</div><div class="v">★ ${st}</div></div>
       <div class="kv"><div class="k">Sahip olduğun yıldız</div><div class="v">★ ${have}</div></div>
       <div class="kv"><div class="k">Kurulan holding</div><div class="v">${(S.legacy && S.legacy.count) || 0}</div></div>
     </div>
     <p class="meta" style="margin-top:10px">Şu anki bonusun: ${P.prestigeText(have)}.<br>Holding sonrası: ${P.prestigeText(have + st)}.</p>
-    <p class="meta">Sıfırlananlar: kasa, filo, hatlar, üsler, lisans, yükseltmeler, müdürler, görevler, rakipler. Kalanlar: yıldızlar ve havayolu adın.</p>
+    <p class="meta">Sıfırlananlar: kasa, filo, hatlar, üsler, slotlar, krediler, hisseler, lisans, yükseltmeler, müdürler, görevler, rakipler. Kalanlar: yıldızlar ve havayolu adın.</p>
     ${can ? '' : '<p class="warn">Holding kurmak için en az Kıtasal lisans ve 1 yıldızlık şirket değeri ($25M) gerekir.</p>'}
     <div class="row"><button id="btnPrestige" class="primary" ${can ? '' : 'disabled'}>Holding kur ve yeniden başla (★ +${st})</button></div>`;
   body.querySelector('#btnPrestige').onclick = () => {
@@ -711,29 +823,129 @@ function renderHolding(body) {
   };
 }
 
-function openReport() {
+let reportTab = 'sum';
+function openReport(tab) {
+  if (tab) reportTab = tab;
   openSheet('report', body => {
-    const last = S.history[S.history.length - 1];
-    const hist = S.history.slice(-30);
-    const max = Math.max(1, ...hist.map(h => Math.abs(h.profit)));
-    const fixed = S.fleet.reduce((s, f) => s + sim.fixedPerDay(f), 0);
     body.innerHTML = `<h3>Rapor</h3><div class="meta">Gün ${S.day} · ${S.fleet.length} uçak · ${S.routes.length} rota</div>
-      ${last ? `<div class="grid2">
-        <div class="kv"><div class="k">Dünkü gelir</div><div class="v">${money(last.revenue)}</div></div>
-        <div class="kv"><div class="k">Dünkü gider</div><div class="v">${money(last.cost)}</div></div>
-        <div class="kv"><div class="k">Dünkü kâr</div><div class="v ${sign(last.profit)}">${money(last.profit)}</div></div>
-        <div class="kv"><div class="k">Dünkü yolcu</div><div class="v">${num(last.pax)}</div></div>
-      </div>` : '<p class="meta">İlk gün henüz bitmedi. Gün sonunda (00:00) hesap yapılır.</p>'}
-      <h4>Son ${hist.length} günün kârı</h4>
-      <div class="bars">${hist.map(h => `<div style="height:${Math.abs(h.profit) / max * 100}%;background:${h.profit >= 0 ? 'var(--good)' : 'var(--bad)'}"></div>`).join('')}</div>
-      <h4>Sabit giderler (günlük)</h4>
-      <div class="grid2">
-        <div class="kv"><div class="k">Uçak kira/bakım</div><div class="v">${money(fixed)}</div></div>
-        <div class="kv"><div class="k">Genel gider</div><div class="v">${money(sim.overheadPerDay(S))}</div></div>
-      </div>
-      <h4>Rotalar</h4><div class="list" id="repRoutes"></div>`;
-    const sorted = [...S.routes].sort((x, y) => (y.last?.net ?? 0) - (x.last?.net ?? 0));
-    routeList(body.querySelector('#repRoutes'), sorted);
+      <div class="tabs">${[['sum', 'Özet'], ['fin', 'Finans'], ['svc', 'Hizmet']].map(([k, l]) => `<button data-t="${k}" class="${k === reportTab ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div id="repBody"></div>`;
+    body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { reportTab = b.dataset.t; refreshSheet(); });
+    ({ sum: renderSummary, fin: renderFinance, svc: renderService })[reportTab](body.querySelector('#repBody'));
+  });
+}
+
+function renderSummary(body) {
+  const last = S.history[S.history.length - 1];
+  const hist = S.history.slice(-30);
+  const max = Math.max(1, ...hist.map(h => Math.abs(h.profit)));
+  const fixed = S.fleet.reduce((s, f) => s + sim.playerFixed(S, f), 0);
+  body.innerHTML = `${last ? `<div class="grid2">
+      <div class="kv"><div class="k">Dünkü gelir</div><div class="v">${money(last.revenue)}</div></div>
+      <div class="kv"><div class="k">Dünkü gider</div><div class="v">${money(last.cost)}</div></div>
+      <div class="kv"><div class="k">Dünkü kâr</div><div class="v ${sign(last.profit)}">${money(last.profit)}</div></div>
+      <div class="kv"><div class="k">Dünkü yolcu</div><div class="v">${num(last.pax)}</div></div>
+      ${last.tpax ? `<div class="kv"><div class="k">Aktarmalı yolcu</div><div class="v">${num(last.tpax)}</div></div>` : ''}
+      ${last.interest ? `<div class="kv"><div class="k">Kredi faizi</div><div class="v neg">${money(last.interest)}</div></div>` : ''}
+      ${last.div ? `<div class="kv"><div class="k">Temettü</div><div class="v neg">${money(last.div)}</div></div>` : ''}
+    </div>` : '<p class="meta">İlk gün henüz bitmedi. Gün sonunda (00:00) hesap yapılır.</p>'}
+    <h4>Son ${hist.length} günün kârı</h4>
+    <div class="bars">${hist.map(h => `<div style="height:${Math.abs(h.profit) / max * 100}%;background:${h.profit >= 0 ? 'var(--good)' : 'var(--bad)'}"></div>`).join('')}</div>
+    <h4>Sabit giderler (günlük)</h4>
+    <div class="grid2">
+      <div class="kv"><div class="k">Uçak kira/bakım</div><div class="v">${money(fixed)}</div></div>
+      <div class="kv"><div class="k">Genel gider</div><div class="v">${money(sim.overheadPerDay(S))}</div></div>
+    </div>
+    ${(S.transfers || []).length ? `<h4>En çok aktarma yapılan yollar</h4><div class="list">${S.transfers.slice(0, 6).map(f => `
+      <div class="item" style="min-height:0"><div class="grow"><div class="t">${AP[f.x].n} → ${AP[f.y].n}</div><div class="s">${AP[f.h].n} üzerinden</div></div><div class="r">${num(f.pax)}<div class="s">yolcu/gün</div></div></div>`).join('')}</div>`
+      : `<p class="meta" style="margin-top:12px">Aktarmalı yolcu yok. Bir üssünden iki farklı yöne hat aç: uçları arasında seyahat edenler üssünde aktarma yapar.</p>`}
+    <h4>Rotalar</h4><div class="list" id="repRoutes"></div>`;
+  const sorted = [...S.routes].sort((x, y) => (y.last?.net ?? 0) - (x.last?.net ?? 0));
+  routeList(body.querySelector('#repRoutes'), sorted);
+}
+
+let loanTerm = 360;
+function renderFinance(body) {
+  const v = P.valueParts(S), cv = P.companyValue(S), lim = D.creditLimit(S), fl = S.float || 0;
+  const loans = S.loans || [];
+  const pay = loans.reduce((s, l) => s + l.pay, 0);
+  body.innerHTML = `<h4>Şirket değeri</h4>
+    <div class="grid2">
+      <div class="kv"><div class="k">Toplam değer</div><div class="v ${sign(cv)}">${money(cv)}</div></div>
+      <div class="kv"><div class="k">Senin payın (%${Math.round((1 - fl) * 100)})</div><div class="v">${money(P.ownerValue(S))}</div></div>
+      <div class="kv"><div class="k">Kasa</div><div class="v">${money(v.cash)}</div></div>
+      <div class="kv"><div class="k">Sahipli uçaklar</div><div class="v">${money(v.owned)}</div></div>
+      <div class="kv"><div class="k">Kârlılık (180 gün)</div><div class="v">${money(v.earnings)}</div></div>
+      <div class="kv"><div class="k">Borç</div><div class="v ${v.debt ? 'neg' : ''}">${money(v.debt)}</div></div>
+    </div>
+    <h4>Banka kredisi</h4>
+    <div class="grid2">
+      <div class="kv"><div class="k">Kredi notu</div><div class="v">${D.rating(S)}</div></div>
+      <div class="kv"><div class="k">Kullanılabilir limit</div><div class="v">${money(lim)}</div></div>
+      <div class="kv"><div class="k">Yıllık faiz (${loanTerm} gün)</div><div class="v">%${(D.loanRate(S, loanTerm) * 100).toFixed(1)}</div></div>
+      <div class="kv"><div class="k">Günlük taksitler</div><div class="v">${money(pay)}</div></div>
+    </div>
+    <div class="tabs" id="lnTerm" style="margin-top:10px">${D.LOAN_TERMS.map(t => `<button data-d="${t}" class="${t === loanTerm ? 'on' : ''}">${t} gün vade</button>`).join('')}</div>
+    <div class="row" id="lnTake">${[0.25, 0.5, 1].map(p => { const a = Math.round(lim * p / 1e5) * 1e5; return `<button class="sm" data-a="${a}" ${a < 1e5 ? 'disabled' : ''}>${money(a)} çek</button>`; }).join('')}</div>
+    <div class="list" id="lnList" style="margin-top:10px"></div>
+    <p class="meta" style="margin-top:8px">Taksitler her gün kasadan düşer. Borcun şirket değerine oranı arttıkça faiz yükselir. Kredini istediğin zaman kapatabilirsin.</p>
+    <h4>Hisse senedi</h4>
+    ${fl ? `<div class="grid2">
+      <div class="kv"><div class="k">Halka açık pay</div><div class="v">%${Math.round(fl * 100)}</div></div>
+      <div class="kv"><div class="k">Hisse fiyatı</div><div class="v">$${D.sharePrice(S).toFixed(2)}</div></div></div>` : ''}
+    <p class="meta" style="margin-top:8px">${D.canIPO(S) || fl ? `%10'luk dilimlerle en fazla %${D.MAX_FLOAT * 100} satabilirsin. Ortaklar her gün kârın %${D.DIVIDEND * 100}'i × paylarını temettü olarak alır. Holding yıldızların senin payına göre hesaplanır.`
+      : 'Halka arz için Ulusal lisans ve en az $20M şirket değeri gerekir.'}</p>
+    <div class="row">
+      <button class="sm" id="shSell" ${D.canIPO(S) && fl < D.MAX_FLOAT - 1e-9 ? '' : 'disabled'}>${fl ? '%10 daha sat' : 'Halka arz: %10 sat'} (+${money(D.sellValue(S))})</button>
+      <button class="sm" id="shBuy" ${fl > 0 && S.cash >= D.buyBackCost(S) ? '' : 'disabled'}>%10 geri al (${money(D.buyBackCost(S))})</button>
+    </div>`;
+  body.querySelectorAll('#lnTerm button').forEach(b => b.onclick = () => { loanTerm = Number(b.dataset.d); refreshSheet(); });
+  body.querySelectorAll('#lnTake button').forEach(b => b.onclick = () => {
+    const amt = Number(b.dataset.a), rate = D.loanRate(S, loanTerm);
+    if (!confirm(`${money(amt)} kredi, ${loanTerm} gün vade, yıllık %${(rate * 100).toFixed(1)} faiz. Günlük taksit ${money(D.loanPayment(amt, rate, loanTerm))}. Onaylıyor musun?`)) return;
+    const l = D.takeLoan(S, amt, loanTerm);
+    if (l) { toast(`Kredi alındı: +${money(l.amount)}`); save(); updateHUD(); refreshSheet(); }
+  });
+  const ll = body.querySelector('#lnList');
+  for (const l of loans) {
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.innerHTML = `<div class="grow"><div class="t">${money(l.amount)} kredi · %${(l.rate * 100).toFixed(1)}</div>
+      <div class="s">Kalan borç ${money(l.principal)} · ${l.left} gün · taksit ${money(l.pay)}/gün</div></div>
+      <button class="sm" ${S.cash < l.principal ? 'disabled' : ''}>Kapat</button>`;
+    row.querySelector('button').onclick = () => { if (D.repayLoan(S, l.id)) { toast('Kredi kapatıldı.'); save(); updateHUD(); refreshSheet(); } };
+    ll.appendChild(row);
+  }
+  body.querySelector('#shSell').onclick = () => {
+    const val = D.sellValue(S);
+    if (!confirm(`Şirketin %10'u ${money(val)} karşılığında satılsın mı? Ortaklar kârdan temettü alır ve holding yıldızların payına göre azalır.`)) return;
+    const got = D.sellShares(S);
+    if (got) { toast(`${(S.float || 0) <= 0.1 ? 'Halka arz tamamlandı' : 'Hisse satıldı'}: +${money(got)}`); save(); updateHUD(); refreshSheet(); checkGoals(); }
+  };
+  body.querySelector('#shBuy').onclick = () => {
+    const c = D.buyBack(S);
+    if (c) { toast(`%10 hisse geri alındı (${money(c)}).`); save(); updateHUD(); refreshSheet(); }
+  };
+}
+
+function renderService(body) {
+  const cur = S.service ?? 1, q = sim.fleetQuality(S), rep = sim.playerRep(S);
+  body.innerHTML = `<div class="meta">Hizmet kalitesi itibarını (rakiplere karşı pazar payı) ve business yolcu talebini etkiler. Yolcu başına maliyeti vardır.</div>
+    <div class="grid2">
+      <div class="kv"><div class="k">Toplam itibar</div><div class="v ${sign(rep - 1)}">${rep >= 1 ? '+' : '−'}%${Math.round(Math.abs(rep - 1) * 100)}</div></div>
+      <div class="kv"><div class="k">Filo yaşı ve durumu</div><div class="v ${sign(q - 1 + 1e-9)}">${q >= 0.999 ? 'iyi' : '−%' + Math.round((1 - q) * 100)}</div></div>
+    </div>
+    <h4>İkram ve kabin hizmeti</h4><div class="list" id="svcList"></div>`;
+  const list = body.querySelector('#svcList');
+  sim.SERVICE.forEach((s, i) => {
+    const b = document.createElement('button');
+    b.className = 'item';
+    if (i === cur) b.style.borderColor = 'var(--accent)';
+    b.innerHTML = `<div class="grow"><div class="t">${i === cur ? '✓ ' : ''}${s.name}</div><div class="s">${s.desc}</div>
+      <div class="s">İtibar ${s.rep >= 1 ? '+' : '−'}%${Math.round(Math.abs(s.rep - 1) * 100)} · business talebi ×${s.biz}</div></div>
+      <div class="r">${s.cost > 0 ? '+$' + s.cost : s.cost < 0 ? '−$' + -s.cost : '$0'}<div class="s">yolcu başına</div></div>`;
+    b.onclick = () => { S.service = i; save(); toast(`Hizmet seviyesi: ${s.name}`); refreshSheet(); };
+    list.appendChild(b);
   });
 }
 
@@ -843,14 +1055,16 @@ window.addEventListener('pagehide', () => save());
 // ---------- Gün sonu ----------
 function endOfDay() {
   const rec = sim.settleDay(S);
+  D.dailyFinance(S, rec);
   const news = spawnRivals(S);
   if (S.day % 7 === 0) news.push(...weeklyRivals(S));
   news.push(...dailyEvents(S));
-  news.push(...P.runManagers(S, (a, b, ids) => addRoute(a, b, ids)));
+  news.push(...D.dailyFleet(S));
+  news.push(...P.runManagers(S, (a, b, ids) => addRoute(a, b, ids), D.runTech));
   pushNews(news);
   syncGlobe();
   save();
-  if (panel && ['report', 'routes', 'license', 'fleet', 'rivals', 'news', 'route'].includes(panel.name)) refreshSheet();
+  if (panel && ['report', 'routes', 'license', 'fleet', 'rivals', 'news', 'route', 'airport', 'market'].includes(panel.name)) refreshSheet();
   if (S.pendingDecision && !$('decision').classList.contains('show')) showDecision();
   checkGoals();
   const imp = news.filter(n => n.important);
@@ -891,6 +1105,11 @@ function startGame(state) {
   S.rivals = S.rivals || []; S.news = S.news || []; S.events = S.events || [];
   S.upgrades = S.upgrades || {}; S.managers = S.managers || {}; S.goalsDone = S.goalsDone || []; S.goalsNotified = S.goalsNotified || [];
   S.firstBase = S.firstBase || S.bases[0];
+  // v0.8 alanları (eski kayıtlar için)
+  S.fleet.forEach(f => { if (f.age == null) f.age = 0; if (f.cond == null) f.cond = 100; });
+  S.slots = S.slots || {}; S.loans = S.loans || []; S.float = S.float || 0;
+  if (S.service == null) S.service = 1;
+  if (!S.used) D.refreshUsed(S);
   const away = S.lastSeen ? Date.now() - S.lastSeen : 0;
   if (away > 0) setTimeout(() => showOffline(away), 700);
   updateGrowthDot();
@@ -936,4 +1155,4 @@ setupStart();
 requestAnimationFrame(frame);
 
 // Test için: ?debug ile açınca konsoldan erişilebilir.
-if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute };
+if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute, D, openAirport, openRoute, openFleet, openMarket, openReport };

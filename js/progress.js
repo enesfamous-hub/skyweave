@@ -1,6 +1,6 @@
 // İlerleme sistemleri: yükseltmeler, görevler, otomasyon (müdürler), çevrimdışı kazanç, prestij (holding).
 import { AIRPORTS } from './data.js';
-import { AP, AC, distKm, routeEcon, routeBlocker, rivalsOnPair, rivalRouteSeats, pairKey, demandPerDir, dayOfYear, gameDate, lvl } from './sim.js';
+import { AP, AC, distKm, routeEcon, routeBlocker, rivalsOnPair, rivalRouteSeats, pairKey, demandPerDir, dayOfYear, gameDate, lvl, planeValue, slotFree, planeDeps } from './sim.js';
 
 const money = n => n <= 0 ? '$0' : n >= 1e6 ? `$${(n / 1e6).toFixed(n >= 1e8 ? 0 : 1)}M` : `$${Math.round(n / 1e3)}K`;
 
@@ -14,6 +14,7 @@ export const UPGRADES = [
   { id: 'launch', name: 'Açılış kampanyaları',   max: 4, base: 500e3, tier: 1, desc: L => `Yeni hat talebi %${40 + 10 * L}'tan başlar, ${Math.round(30 * (1 - 0.15 * L))} günde dolar` },
   { id: 'night',  name: 'Gece vardiyası müdürü', max: 5, base: 300e3, tier: 1, desc: L => `Çevrimdışı kazanç ${8 + 2 * L} saate kadar, verim %${50 + 10 * L}` },
   { id: 'mkt',    name: 'Sadakat programı',      max: 5, base: 900e3, tier: 2, desc: L => `Tüm hatlarında talep +%${3 * L}` },
+  { id: 'hub',    name: 'Aktarma merkezi',       max: 4, base: 1.2e6, tier: 2, desc: L => `Üslerinde aktarmalı yolcu talebi +%${15 * L}` },
 ];
 export const upgradeCost = (u, L) => Math.round(u.base * Math.pow(2.3, L) / 1000) * 1000;
 export const totalUpgrades = S => Object.values(S.upgrades || {}).reduce((s, x) => s + x, 0);
@@ -34,6 +35,7 @@ export const MANAGERS = [
   { id: 'pricing', name: 'Gelir müdürü',  cost: 1e6,   salary: 2000, tier: 1, desc: 'Her hafta tüm hatlarının bilet fiyatını doluluğa göre ayarlar: dolu hatta zam, boş hatta indirim.' },
   { id: 'fleet',   name: 'Filo müdürü',   cost: 1.5e6, salary: 3000, tier: 1, desc: 'Her gün boştaki uçaklarını, talebi koltuktan fazla olan hatlarına atar.' },
   { id: 'network', name: 'Ağ planlayıcı', cost: 4e6,   salary: 6000, tier: 2, desc: 'Boşta uçak kalırsa üslerinden en çok talep gören yeni hattı kendisi açar.' },
+  { id: 'tech',    name: 'Teknik müdür',  cost: 1.2e6, salary: 2500, tier: 1, desc: "Durumu %60'ın altına düşen uçakları sırayla ağır bakıma alır." },
 ];
 export const hasManager = (S, id) => !!(S.managers && S.managers[id] && S.managers[id].on);
 
@@ -71,6 +73,8 @@ function runFleet(S) {
     for (const r of S.routes) {
       const d = distKm(AP[r.a], AP[r.b]);
       if (AC[f.type].range < d) continue;
+      const need0 = planeDeps(S, d, f.type);
+      if (slotFree(S, r.a) < need0 || slotFree(S, r.b) < need0) continue;
       const e = routeEcon(r, S.fleet, doy, true, S);
       const need = e.demand * Math.max(e.share, 0.3) - e.seats;
       if (e.load > 0.95 && need > bestNeed) { bestNeed = need; best = r; }
@@ -98,6 +102,8 @@ function runNetwork(S, openRoute) {
         if (routeBlocker(S, a, b)) continue;
         const d = distKm(a, b);
         if (ac.range < d) continue;
+        const need0 = planeDeps(S, d, ac.id);
+        if (slotFree(S, a.c) < need0 || slotFree(S, b.c) < need0) continue;
         const D0 = demandPerDir(a, b, doy, 1);
         const rivalSeats = rivalsOnPair(S, a.c, b.c).reduce((s, x) => s + rivalRouteSeats(x.rr, S), 0);
         const score = Math.min(D0 - rivalSeats * 0.7, ac.seats * 6) * Math.min(1, d / 500);
@@ -113,8 +119,9 @@ function runNetwork(S, openRoute) {
 }
 
 // Gün sonunda çağrılır. openRoute(a, b, planeIds): main tarafındaki sessiz hat açma.
-export function runManagers(S, openRoute) {
+export function runManagers(S, openRoute, runTech) {
   const news = [];
+  if (hasManager(S, 'tech')) news.push(...runTech(S));
   if (hasManager(S, 'fleet')) news.push(...runFleet(S));
   if (hasManager(S, 'network')) news.push(...runNetwork(S, openRoute));
   if (hasManager(S, 'pricing') && S.day % 7 === 0) news.push(...runPricing(S));
@@ -137,13 +144,18 @@ export const GOALS = [
   G('tier2', 'Ulusal lisansı al', 2, S => S.tier, 1.5e6),
   G('share50', 'Rakipli bir hatta %50 pazar payına ulaş', 1, S => S.routes.some(r => r.last && r.last.share >= 0.5 && rivalsOnPair(S, r.a, r.b).length) ? 1 : 0, 1e6),
   G('base2', 'İkinci üssünü kur', 2, S => S.bases.length, 1e6),
+  G('cabin1', 'Bir hatta business sınıfı aç', 1, S => S.routes.filter(r => r.cabin > 0).length, 800e3),
+  G('hub200', 'Bir günde 200 aktarmalı yolcu taşı', 200, S => S.history.length ? S.history[S.history.length - 1].tpax || 0 : 0, 1.5e6),
   G('own1', 'Bir uçak satın al (kiralık değil)', 1, S => S.fleet.filter(f => !f.leased).length, 2e6),
   G('pax50k', '50.000 yolcu taşı', 5e4, S => S.totalPax, 2e6),
   G('route10', '10 hat işlet', 10, S => S.routes.length, 3e6),
+  G('mx1', 'Bir uçağa ağır bakım yaptır', 1, S => S.checks || 0, 1.5e6),
   G('profit100k', 'Bir günde $100K kâr et', 1e5, lastProfit, 4e6),
   G('up10', 'Toplam 10 yükseltme seviyesine ulaş', 10, S => totalUpgrades(S), 3e6),
   G('tier3', 'Kıtasal lisansı al', 3, S => S.tier, 8e6),
   G('intl1', 'İlk yurt dışı hattını aç', 1, S => S.routes.filter(r => AP[r.a].co !== AP[r.b].co).length, 5e6),
+  G('ipo', 'Halka arz ol (hisse sat)', 1, S => (S.float || 0) > 0 ? 1 : 0, 5e6),
+  G('hub2k', 'Bir günde 2.000 aktarmalı yolcu taşı', 2000, S => S.history.length ? S.history[S.history.length - 1].tpax || 0 : 0, 10e6),
   G('fleet20', 'Filonu 20 uçağa çıkar', 20, S => S.fleet.length, 8e6),
   G('pax500k', '500.000 yolcu taşı', 5e5, S => S.totalPax, 10e6),
   G('profit500k', 'Bir günde $500K kâr et', 5e5, lastProfit, 15e6),
@@ -198,13 +210,21 @@ export function offlineEarnings(S, ms) {
 }
 
 // ---------- Prestij: Holding kur ----------
-export function companyValue(S) {
-  const owned = S.fleet.filter(f => !f.leased).reduce((s, f) => s + AC[f.type].price * 1e6 * 0.7, 0);
+// Şirket değeri: kasa + sahip olunan uçaklar + kârlılık − borç
+export function valueParts(S) {
+  const owned = S.fleet.filter(f => !f.leased).reduce((s, f) => s + planeValue(f), 0);
   const hist = S.history.slice(-7);
   const avg = hist.length ? hist.reduce((s, h) => s + h.profit, 0) / hist.length : 0;
-  return S.cash + owned + Math.max(0, avg) * 180;
+  const debt = (S.loans || []).reduce((s, l) => s + l.principal, 0);
+  return { cash: S.cash, owned, earnings: Math.max(0, avg) * 180, debt };
 }
-export const starsFor = S => Math.floor(Math.sqrt(Math.max(0, companyValue(S)) / 25e6));
+export function companyValue(S) {
+  const v = valueParts(S);
+  return v.cash + v.owned + v.earnings - v.debt;
+}
+// Senin payın (halka arzda satılan hisseler düşülür)
+export const ownerValue = S => companyValue(S) * (1 - (S.float || 0));
+export const starsFor = S => Math.floor(Math.sqrt(Math.max(0, ownerValue(S)) / 25e6));
 export const canPrestige = S => S.tier >= 3 && starsFor(S) >= 1;
 export const legacyStars = S => (S.legacy && S.legacy.stars) || 0;
 export const prestigeText = s => `Gelir +%${5 * s} · başlangıç kasası +${money(1e6 * s)}`;

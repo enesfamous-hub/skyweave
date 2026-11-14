@@ -78,13 +78,93 @@ export function rampP(S, age) {
   return Math.min(1, start + (1 - start) * (age || 0) / days);
 }
 export const playerFixed = (S, f) => fixedPerDay(f) * (1 - 0.06 * lvl(S, 'maint'));
-export const playerRep = S => (S ? (S.rep || 1) : 1) * (1 + 0.03 * lvl(S, 'lounge')) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1);
+export const playerRep = S => (S ? (S.rep || 1) : 1) * (1 + 0.03 * lvl(S, 'lounge')) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1) * serviceOf(S).rep * fleetQuality(S);
 export const playerStrike = S => activeEvents(S).some(e => e.strike);
 // Bir hattın kapasite çarpanı (iki ucun en kötüsü)
 export const pairCap = (S, aC, bC) => S ? Math.min(evFactors(S, aC).cap, evFactors(S, bC).cap) : 1;
 export const leasePerDay = ac => ac.price * 1e6 * LEASE_RATE + 2500;
 export const ownPerDay = ac => ac.price * 1e6 * OWN_RATE;
-export const fixedPerDay = f => f.leased ? leasePerDay(AC[f.type]) : ownPerDay(AC[f.type]);
+export const fixedPerDay = f => f.leased ? (f.leaseDay || leasePerDay(AC[f.type])) : ownPerDay(AC[f.type]) * (1 + 0.04 * ageYears(f));
+
+// ---------- Uçak yaşı, durum ve bakım ----------
+export const ageYears = f => (f.age || 0) / 365;
+export const condOf = f => f.cond ?? 100;
+export const isDown = (S, f) => !!(f.down && S && f.down.until > S.day);
+// Uçağın piyasa değeri: yaşla düşer, durum kötüyse daha da düşer
+export const planeValue = f => AC[f.type].price * 1e6 * 0.75 * Math.pow(0.94, ageYears(f)) * (0.75 + 0.25 * condOf(f) / 100);
+export const checkCost = f => Math.round(AC[f.type].price * 1e6 * 0.01 * (1 + 0.05 * ageYears(f)) / 1000) * 1000;
+export const CHECK_DAYS = 4;
+export const checkRestores = f => Math.max(70, 100 - 1.2 * ageYears(f));
+// Yaşlı ve yıpranmış uçak daha çok yakıt yakar
+export const planeFuelMul = f => (1 + 0.006 * ageYears(f)) * (condOf(f) < 60 ? 1.03 : 1);
+// Filonun ortalama yaşı ve durumu itibarı etkiler
+export function fleetQuality(S) {
+  if (!S || !S.fleet || !S.fleet.length) return 1;
+  let age = 0, cond = 0;
+  for (const f of S.fleet) { age += ageYears(f); cond += condOf(f); }
+  age /= S.fleet.length; cond /= S.fleet.length;
+  return Math.max(0.82, 1 - 0.012 * Math.max(0, age - 8) - 0.004 * Math.max(0, 70 - cond));
+}
+
+// ---------- Kabin sınıfları ve hizmet ----------
+export const CABINS = [
+  { id: 0, name: 'Tek sınıf', frac: 0,    desc: 'Tüm koltuklar ekonomi' },
+  { id: 1, name: 'Karma',     frac: 0.15, desc: "Kabinin %15'i business" },
+  { id: 2, name: 'Premium',   frac: 0.30, desc: "Kabinin %30'u business" },
+];
+export const BIZ_SPACE = 2.5;   // bir business koltuğu 2,5 ekonomi koltuğu yer kaplar
+export const BIZ_FARE = 3.2;    // business bileti ekonominin 3,2 katı
+export const SERVICE = [
+  { name: 'Ekonomik', cost: -3, rep: 0.92, biz: 0.6,  desc: 'İkram yok, dar koltuk aralığı' },
+  { name: 'Standart', cost: 0,  rep: 1,    biz: 1,    desc: 'Sıcak içecek ve atıştırmalık' },
+  { name: 'Konforlu', cost: 6,  rep: 1.07, biz: 1.25, desc: 'Sıcak yemek, geniş koltuk aralığı' },
+  { name: 'Premium',  cost: 14, rep: 1.13, biz: 1.5,  desc: 'Şef menüsü, uçak içi eğlence, Wi-Fi' },
+];
+export const serviceOf = S => SERVICE[S && S.service != null ? S.service : 1];
+// Bir hattaki yolcuların business seçme eğilimi
+export const bizShare = (a, b, d) => 0.05 + (a.co !== b.co ? 0.04 : 0) + 0.06 * Math.min(1, d / 4000) + 0.004 * Math.min(15, Math.sqrt(a.p * b.p));
+
+// ---------- Havalimanı slotları ----------
+// Büyük havalimanlarında günlük kalkış hakkı sınırlıdır. Paket satın alarak artırılır.
+export const SLOT_PACK = 5;
+export const BASE_SLOTS = 40, FREE_SLOTS = 10;
+export const slotControlled = ap => ap.p >= 3 || (ap.t >= 1 && ap.p >= 2);
+export const slotPacks = (S, code) => (S && S.slots && S.slots[code]) || 0;
+export function slotCap(S, code) {
+  const ap = AP[code];
+  if (!slotControlled(ap)) return Infinity;
+  return (S.bases.includes(code) ? BASE_SLOTS : FREE_SLOTS) + SLOT_PACK * slotPacks(S, code);
+}
+export function slotPackPrice(S, code) {
+  const ap = AP[code], zm = ap.z === 'TR' ? 1 : ap.z === 'K' ? 1.6 : 2.2;
+  return Math.round(25e3 * ap.p * zm * Math.pow(1.25, slotPacks(S, code)) / 1000) * 1000;
+}
+// Havalimanı başına günlük kalkış kullanımı (bakımdaki uçaklar sayılmaz). Önbellekli.
+let slotMemo = { key: null, map: null, S: null };
+export function slotUse(S) {
+  const key = S.day + '|' + lvl(S, 'turn') + '|' + S.bases.join() + '|' + JSON.stringify(S.slots || {}) + '|'
+    + S.routes.map(r => r.a + r.b + r.planes.join('.')).join(',') + '|' + S.fleet.map(f => f.down ? f.down.until : 0).join('');
+  if (slotMemo.key === key && slotMemo.S === S) return slotMemo.map;
+  const map = {};
+  for (const r of S.routes) {
+    const d = distKm(AP[r.a], AP[r.b]);
+    let deps = 0;
+    for (const id of r.planes) { const f = S.fleet.find(x => x.id === id); if (f && !isDown(S, f)) deps += rtPerDay(d, effAc(S, AC[f.type])); }
+    for (const c of [r.a, r.b]) map[c] = (map[c] || 0) + deps;
+  }
+  slotMemo = { key, map, S };
+  return map;
+}
+export const slotUsed = (S, code) => slotUse(S)[code] || 0;
+export const slotFree = (S, code) => slotCap(S, code) - slotUsed(S, code);
+export function slotFactor(S, code) {
+  if (!S) return 1;
+  const cap = slotCap(S, code); if (cap === Infinity) return 1;
+  const u = slotUsed(S, code);
+  return u > cap ? cap / u : 1;
+}
+// Bir uçağın bir hatta ihtiyaç duyduğu günlük kalkış
+export const planeDeps = (S, d, type) => rtPerDay(d, effAc(S, AC[type]));
 
 // ---------- Pazar ve rekabet ----------
 export const pairKey = (a, b) => a < b ? a + '-' + b : b + '-' + a;
@@ -127,14 +207,18 @@ export function allocate(D0, carriers) {
 
 // Oyuncunun uçabilen günlük gidiş-dönüş sayısı (hava, grev, teknik inceleme düşülür)
 function playerRt(S, route, f, d) {
-  if (S && (playerStrike(S) || grounded(S).has(f.type))) return 0;
-  return rtPerDay(d, effAc(S, AC[f.type])) * pairCap(S, route.a, route.b);
+  if (S && (playerStrike(S) || grounded(S).has(f.type) || isDown(S, f))) return 0;
+  const slot = S && S.routes.includes(route) ? Math.min(slotFactor(S, route.a), slotFactor(S, route.b)) : 1;
+  return rtPerDay(d, effAc(S, AC[f.type])) * pairCap(S, route.a, route.b) * slot;
 }
 function playerSeats(S, route, fleet, d) {
   let seats = 0;
   for (const id of route.planes) { const f = fleet.find(x => x.id === id); if (f) seats += AC[f.type].seats * playerRt(S, route, f, d); }
   return seats;
 }
+export const cabinOf = route => CABINS[route.cabin || 0];
+export const ecoSeats = (route, seats) => seats * (1 - cabinOf(route).frac);
+export const bizSeats = (route, seats) => seats * cabinOf(route).frac / BIZ_SPACE;
 
 // Bir hattaki tüm havayolları ve paylaştırılmış yolcuları.
 export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.fleet : [], mature = false } = {}) {
@@ -142,7 +226,8 @@ export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.f
   const D0 = demandPerDir(a, b, doy, 1) * (S ? evFactors(S, aC).dem * evFactors(S, bC).dem : 1);
   const entries = [];
   const pr = playerRoute || (S ? S.routes.find(r => pairKey(r.a, r.b) === pairKey(aC, bC)) : null);
-  if (pr) entries.push({ kind: 'player', route: pr, seats: playerSeats(S, pr, fleet, d), fareMul: pr.fareMul, rep: playerRep(S), ramp: (mature ? 1 : rampP(S, pr.age)) * (1 + 0.03 * lvl(S, 'mkt')) });
+  const phys = pr ? playerSeats(S, pr, fleet, d) : 0;
+  if (pr) entries.push({ kind: 'player', route: pr, seats: ecoSeats(pr, phys), phys, fareMul: pr.fareMul, rep: playerRep(S), ramp: (mature ? 1 : rampP(S, pr.age)) * (1 + 0.03 * lvl(S, 'mkt')) });
   for (const { rv, rr } of rivalsOnPair(S, aC, bC)) {
     entries.push({ kind: 'rival', rv, route: rr, seats: rivalRouteSeats(rr, S), fareMul: rr.fareMul, rep: rv.rep, ramp: rampOf(rr.age) });
   }
@@ -159,23 +244,76 @@ export function routeEcon(route, fleet, doy, mature = false, S = null) {
   for (const id of route.planes) {
     const p = fleet.find(f => f.id === id); if (!p) continue;
     const ac = AC[p.type], rt = playerRt(S, route, p, d);
-    const fm = fuelMul(S, true) * (1 - 0.04 * lvl(S, 'fuel'));
+    const fm = fuelMul(S, true) * (1 - 0.04 * lvl(S, 'fuel')) * planeFuelMul(p);
     const wm = (S ? S.wageMul || 1 : 1) * (1 - 0.04 * lvl(S, 'crew'));
     legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fm, wm); fixed += playerFixed(S, p);
   }
   const fare = baseFare(d) * route.fareMul;
   const pax = me.pax, seats = me.seats;
-  const revenue = 2 * pax * fare * (1 + 0.05 * stars(S));
-  const cost = opCost + 2 * pax * PAX_FEE;
+  // Business sınıfı: fiyata daha az duyarlı, hizmet kalitesine bağlı
+  const svc = serviceOf(S);
+  const bSeats = bizSeats(route, me.phys);
+  const bFare = baseFare(d) * BIZ_FARE * route.fareMul;
+  let bPax = 0;
+  if (bSeats > 0) {
+    const pot = m.D0 * bizShare(AP[route.a], AP[route.b], d) * svc.biz * (1 + 0.04 * lvl(S, 'lounge')) * me.ramp * Math.pow(route.fareMul, -0.8);
+    bPax = Math.min(bSeats, pot * (m.entries.length > 1 ? 0.55 + 0.45 * (m.total ? pax / m.total : 1) : 1));
+  }
+  const bonus = 1 + 0.05 * stars(S);
+  const revenue = 2 * (pax * fare + bPax * bFare) * bonus;
+  const cost = opCost + 2 * (pax + bPax) * (PAX_FEE + svc.cost) + 2 * bPax * 15;
+  const allSeats = seats + bSeats;
+  const inS = S && S.routes.includes(route);
   return {
     d, seats, pax, legs, fare, revenue, cost, fixed,
+    bSeats, bPax, bFare, phys: me.phys,
     demand: m.D0 * Math.pow(route.fareMul, -1.4) * me.ramp,   // pazarın toplam talebi (bizim fiyatla)
     share: m.total ? pax / m.total : 1,
     comps: m.entries.slice(1),
-    load: seats ? pax / seats : 0,
+    load: allSeats ? (pax + bPax) / allSeats : 0,
+    ecoLoad: seats ? pax / seats : 0,
+    bizLoad: bSeats ? bPax / bSeats : 0,
+    slotLimited: inS ? Math.min(slotFactor(S, route.a), slotFactor(S, route.b)) < 0.999 : false,
     profit: revenue - cost,            // uçak kirası hariç
     net: revenue - cost - fixed,       // uçak kirası dahil
   };
+}
+
+// ---------- Aktarmalı yolcu ----------
+// Üslerinde (hub) iki hattın uçları arasında seyahat eden yolcular, iki hattaki boş ekonomi koltuklarını kullanır.
+export const CONN_MUL = 0.45;
+export function transferFlows(S, doy, free) {
+  const flows = [];
+  const direct = new Set(S.routes.map(r => pairKey(r.a, r.b)));
+  const hubMul = 1 + 0.15 * lvl(S, 'hub');
+  const rep = Math.min(1.3, playerRep(S));
+  for (const h of S.bases) {
+    const H = AP[h];
+    const rs = S.routes.filter(r => (r.a === h || r.b === h) && (free.get(r.id) || 0) > 0.5);
+    for (let i = 0; i < rs.length; i++) for (let j = i + 1; j < rs.length; j++) {
+      const r1 = rs[i], r2 = rs[j];
+      const x = r1.a === h ? r1.b : r1.a, y = r2.a === h ? r2.b : r2.a;
+      if (x === y || direct.has(pairKey(x, y))) continue;
+      const X = AP[x], Y = AP[y], dxy = distKm(X, Y);
+      if (dxy < MIN_ROUTE_KM) continue;
+      const d1 = distKm(X, H), d2 = distKm(H, Y), ratio = (d1 + d2) / dxy;
+      const detour = ratio <= 1.3 ? 1 : Math.max(0, 1 - (ratio - 1.3) * 1.4);
+      if (detour <= 0) continue;
+      const fareMul = (r1.fareMul * d1 + r2.fareMul * d2) / (d1 + d2);
+      let D = demandPerDir(X, Y, doy, 1) * evFactors(S, x).dem * evFactors(S, y).dem * CONN_MUL * detour * hubMul * rep
+        * Math.pow(fareMul, -1.4) * Math.min(rampP(S, r1.age), rampP(S, r2.age)) * (1 + 0.03 * lvl(S, 'mkt'));
+      if (rivalsOnPair(S, x, y).length) D *= 0.3; // rakibin direkt uçuşu varsa yolcu onu tercih eder
+      if (D < 0.5) continue;
+      flows.push({ h, x, y, r1, r2, d1, d2, D, fare: baseFare(dxy) * fareMul * 0.85, pax: 0 });
+    }
+  }
+  // Boş koltuklara orantılı paylaştır
+  const req = new Map();
+  for (const f of flows) for (const r of [f.r1, f.r2]) req.set(r.id, (req.get(r.id) || 0) + f.D);
+  const scale = id => Math.min(1, (free.get(id) || 0) / (req.get(id) || 1));
+  for (const f of flows) f.pax = f.D * Math.min(scale(f.r1.id), scale(f.r2.id));
+  flows.req = req;
+  return flows;
 }
 
 // Rakibin bir rotasının günlük ekonomisi
@@ -196,11 +334,34 @@ export const overheadPerDay = S => (3000 + 1500 * S.bases.length + 300 * S.fleet
 export function settleDay(S) {
   const doy = dayOfYear(gameDate(S.t));
   let revenue = 0, cost = 0, pax = 0;
+  const free = new Map();
   for (const r of S.routes) {
     const e = routeEcon(r, S.fleet, doy, false, S);
-    r.last = { pax: Math.round(2 * e.pax), load: e.load, revenue: e.revenue, net: e.net, demand: Math.round(e.demand), share: e.share };
-    revenue += e.revenue; cost += e.cost; pax += 2 * e.pax;
+    r.last = { pax: Math.round(2 * (e.pax + e.bPax)), bpax: Math.round(2 * e.bPax), tpax: 0, load: e.load, revenue: e.revenue, net: e.net, demand: Math.round(e.demand), share: e.share };
+    revenue += e.revenue; cost += e.cost; pax += 2 * (e.pax + e.bPax);
+    free.set(r.id, Math.max(0, e.seats - e.pax));
   }
+  // Aktarmalı yolcular (iki yönde). Yolcu sayısına bir kez girer.
+  const flows = transferFlows(S, doy, free);
+  const bonus = 1 + 0.05 * stars(S), svc = serviceOf(S);
+  let tpax = 0;
+  const hubs = {};
+  for (const f of flows) {
+    if (f.pax < 0.5) continue;
+    const rev = 2 * f.pax * f.fare * bonus, c = 2 * f.pax * (2 * (PAX_FEE + svc.cost) + 4);
+    revenue += rev; cost += c; tpax += 2 * f.pax;
+    hubs[f.h] = (hubs[f.h] || 0) + 2 * f.pax;
+    // gelir ve yolcuyu hatlara mesafeye göre dağıt (rapor için)
+    for (const [r, dd] of [[f.r1, f.d1], [f.r2, f.d2]]) {
+      const w = dd / (f.d1 + f.d2);
+      r.last.tpax += 2 * f.pax; r.last.revenue += rev * w; r.last.net += (rev - c) * w;
+    }
+  }
+  S.routes.forEach(r => { r.last.tpax = Math.round(r.last.tpax); r.last.tdem = Math.round(2 * (flows.req.get(r.id) || 0)); });
+  S.transfers = flows.filter(f => f.pax >= 0.5).sort((p, q) => q.pax - p.pax).slice(0, 12)
+    .map(f => ({ h: f.h, x: f.x, y: f.y, pax: Math.round(2 * f.pax) }));
+  S.hubPax = Object.fromEntries(Object.entries(hubs).map(([k, v]) => [k, Math.round(v)]));
+  pax += tpax;
   // Rakipler (aynı pazar paylaşımıyla)
   for (const rv of S.rivals || []) {
     if (!rv.active) continue;
@@ -225,7 +386,7 @@ export function settleDay(S) {
   S.cash += revenue - cost;
   S.totalPax += pax;
   S.day++;
-  const rec = { day: S.day, revenue, cost, profit: revenue - cost, pax };
+  const rec = { day: S.day, revenue, cost, profit: revenue - cost, pax, tpax: Math.round(tpax) };
   S.history.push(rec);
   if (S.history.length > 60) S.history.shift();
   return rec;

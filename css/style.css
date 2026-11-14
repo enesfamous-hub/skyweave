@@ -223,3 +223,4 @@ button.sm.on { background: var(--good); color: #062; border: none; font-weight: 
 }
 .card .tiny { font-size: 12px; color: var(--muted); margin: 12px 0 0; text-align: center; }
 #continueBox button { margin-bottom: 16px; }
+.warnc { color: var(--accent); }
