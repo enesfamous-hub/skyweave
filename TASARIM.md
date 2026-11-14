@@ -1,4 +1,4 @@
-# SkyWeave — Tasarım Belgesi (v0.8)
+# SkyWeave — Tasarım Belgesi (v0.9)
 
 > Türkiye'de küçük bir bölgesel havayolu olarak başla, dünyanın dört bir yanına uçan bir dev ol.
 
@@ -122,6 +122,15 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 ### İflas
 - Kasa eksiye düşebilir (günlük faiz işler). −10 M$'ın altına inerse iflas edersin ve oyun biter.
 
+### Cila ve deneyim (v0.9)
+- **Ses:** Tüm sesler Web Audio ile üretilir (dosya yok): kalkış, para, satın alma, rekor, lisans fanfarı, bildirim, hata, düğme tıkı. Sakin, kendi kendine akan ambient müzik. Telefonda (Android) kısa titreşimler.
+- **Görsel geri bildirim:** Gün sonunda kasanın yanından günün kârı uçar ve kasa parlar. Lisans ve holding için konfetili kutlama kartı (açılan uçaklar, yükseltmeler, müdürler). Rekorlar (en kârlı gün, en çok yolcu) ve yolcu kilometre taşları (10 bin, 100 bin, 1 milyon...) bildirim, ses ve konfetiyle kutlanır.
+- **Grafikler (Rapor → Grafikler):** 30 gün / 90 gün / 1 yıl; günlük kâr, kasa, gelir-gider, yolcu (aktarmalı dahil), toplam pazar payı; en iyi ve en kötü günler; tüm zamanların rekorları; hatların 30 günlük ortalama kârı ve eğilim çizgisi. Hat ekranında son 60 günün kârı, doluluk ve pazar payı. Grafiğe dokununca o günün değeri görünür. Günlük geçmiş 400 gün tutulur.
+- **Ayarlar (⚙):** Ses efektleri, müzik, ses düzeyi, titreşim, açılış hızı, ipuçları, "Nasıl oynanır" rehberi, oyunu sıfırlama. Dil şimdilik yalnızca Türkçe. Klavye: boşluk duraklatır, 1–3 hız, Esc kapatır.
+- **Kayıt taşıma:** Ayarlar'dan kayıt dosyası indirilir ya da kayıt kodu kopyalanır (gzip + base64, "SW1." ile başlar). Öbür cihazda Ayarlar → İçe aktar ya da açılış ekranındaki "Başka cihazdan kayıt yükle".
+- **Uygulama (PWA):** Uygulama tanımı (manifest), simgeler ve service worker. Ana ekrana eklenince tam ekran açılır. Oyun dosyaları ve MapLibre önbellekte durduğu için internetsiz açılır; gezilen harita karoları da (en fazla 2.500) önbelleğe alınır.
+- **Eğitim:** İlk adımlar üstteki ipucu çubuğunda. Sonra oyun ilerledikçe 17 bağlamsal ipucu kartı bir kez çıkar: gün sonu ve rapor, yakınlaşma, dolu ve boş hatlar, görevler, rakipler, olaylar, yükseltmeler, lisanslar, ikinci üs, aktarma, bakım, slotlar, müdürler, kredi, çevrimdışı kazanç, holding. Karttaki düğme ilgili menüyü açar.
+
 ### Gün-gece
 - Küre üzerinde güneş, oyun saatine ve tarihe göre gerçek konumunda. Gece tarafı karanlık.
 
@@ -130,7 +139,8 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **v0.3 (şimdi):** Harita MapLibre küre görünümüne geçti. Yakınlaştıkça gerçek harita ve havalimanında OpenStreetMap verisiyle gerçek pistler, taksi yolları, apronlar ve 3B binalar (terminal, kule, hangar). Yakınlaşınca kamera otomatik eğilir. Gece bölgesi harita üzerinde gölge olarak görünür. Ayrı yakın plan ekranı kaldırıldı (kodu `arsiv/v0.3` içinde).
 - **v0.3.1 (tamam):** Havalimanına yakınlaşınca 3B uçaklar: OpenStreetMap'teki gerçek kapılara park eder (kapı yoksa apron üzerine), gerçek pistlere iner ve kalkar, taksi yollarından geçer, geri itilir (pushback). Senin uçakların sarı kuyruklu, sayıları o havalimanındaki sefer payına göre.
 - **v0.6 (tamam):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
-- **v0.8 (şimdi):** Derinlik: aktarmalı yolcu, kabin sınıfları ve hizmet, uçak yaşı ve bakım, ikinci el pazarı, kredi ve hisse, slotlar.
+- **v0.9 (şimdi):** Cila ve deneyim: ses ve müzik, görsel geri bildirim, grafikler, ayarlar, kayıt taşıma, PWA, bağlamsal eğitim.
+- **v0.8 (tamam):** Derinlik: aktarmalı yolcu, kabin sınıfları ve hizmet, uçak yaşı ve bakım, ikinci el pazarı, kredi ve hisse, slotlar.
 - **v0.7 (tamam):** İdle çekirdeği: çevrimdışı kazanç, yükseltmeler, görevler, otomasyon (müdürler), Holding (prestij). Bkz. "İlerleme" bölümü.
 - **v0.5 (tamam):** Rakip havayolları. Bkz. "Rakipler" bölümü.
 - **v0.6:** Daha fazla havaalanı (OurAirports verisi), itibar ve hizmet kalitesi, ses.
@@ -151,6 +161,13 @@ js/rivals.js       rakip havayolları ve haftalık yapay zekâ kararları
 js/events.js       olaylar, haberler ve oyuncu kararları
 js/progress.js     yükseltmeler, görevler, müdürler, çevrimdışı kazanç, holding
 js/depth.js        uçak yaşlanması ve bakım, ikinci el pazarı, kredi ve hisse
+js/settings.js     cihaz ayarları, kayıt kodu (dışa/içe aktarma)
+js/audio.js        ses efektleri, müzik, titreşim (Web Audio)
+js/fx.js           uçan para yazısı, konfeti, kutlama kartı
+js/charts.js       SVG çizgi ve sütun grafikler
+js/tutorial.js     bağlamsal ipuçları ve "Nasıl oynanır" rehberi
 js/main.js         oyun döngüsü, arayüz, kayıt
+sw.js              service worker (internetsiz çalışma)
+manifest.webmanifest, icons/   uygulama tanımı ve simgeler
 arsiv/v0.1         ilk prototip
 ```

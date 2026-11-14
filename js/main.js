@@ -1,12 +1,19 @@
 // Oyun döngüsü, arayüz ve kayıt.
 import { Globe } from './globe.js';
-import { AirportTraffic } from './traffic3d.js?v=10';
+import { AirportTraffic } from './traffic3d.js?v=12';
 import { AIRPORTS, AIRCRAFT, TIERS, ZONES } from './data.js';
 import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
 import { dailyEvents, decisionView, decide, describeEvent } from './events.js';
 import * as P from './progress.js';
 import * as D from './depth.js';
+import { settings, saveSettings, encodeSave, decodeSave, downloadText } from './settings.js';
+import { fx, play, applyVolume } from './audio.js';
+import { floatText, pulse, confetti, celebrate } from './fx.js';
+import { lineChart, barChart, bindCharts } from './charts.js';
+import { nextTip, GUIDE, TIPS } from './tutorial.js';
+
+const VERSION = '0.9';
 
 const { AP, AC } = sim;
 const SAVE_KEY = 'skyweave-save-v2';
@@ -138,6 +145,7 @@ function routeEventWarnings(r) {
 
 // ---------- Alt sayfa ----------
 function openSheet(name, render) {
+  if (!panel || panel.name !== name) $('sheet').scrollTop = 0;
   panel = { name, render };
   refreshSheet();
   $('sheet').classList.add('open');
@@ -203,7 +211,7 @@ function openAirport(ap) {
     if (sb) sb.onclick = () => {
       const price = sim.slotPackPrice(S, ap.c);
       if (S.cash < price) return;
-      S.cash -= price; S.slots[ap.c] = sim.slotPacks(S, ap.c) + 1;
+      S.cash -= price; S.slots[ap.c] = sim.slotPacks(S, ap.c) + 1; fx('buy');
       toast(`${ap.n}: +${sim.SLOT_PACK} günlük kalkış hakkı alındı.`); save(); updateHUD(); refreshSheet();
     };
     const act = body.querySelector('#apActions');
@@ -222,7 +230,7 @@ function openAirport(ap) {
         bb.disabled = S.cash < sim.BASE_COST;
         bb.onclick = () => {
           if (S.cash < sim.BASE_COST) return;
-          S.cash -= sim.BASE_COST; S.bases.push(ap.c);
+          S.cash -= sim.BASE_COST; S.bases.push(ap.c); fx('fanfare'); confetti(120);
           toast(`${ap.n} artık üssün!`); save(); refreshSheet();
         };
         act.appendChild(bb);
@@ -359,6 +367,7 @@ function createRoute(a, b, planeIds, fareMul) {
   pickFrom = null;
   globe.setPreview(null);
   save();
+  fx('takeoff');
   toast(`Rota açıldı: ${a.n} ⇄ ${b.n}`);
   openRoute(r);
 }
@@ -414,9 +423,11 @@ function openRoute(r) {
         ${e.slotLimited ? '<p class="err" style="margin-top:8px">Slot yetmiyor: seferlerin bir kısmı yapılamıyor. Uç havalimanlarından slot satın al.</p>' : ''}
         ${routeEventWarnings(r)}
         ${compList(e.comps)}
+        ${routeCharts(r)}
         ${sim.rampP(S, r.age) < 1 ? `<p class="meta" style="margin-top:8px">Rota yeni: talep şu an tam seviyenin %${Math.round(100 * sim.rampP(S, r.age))}'ında.</p>` : ''}
         ${e.load > 0.98 && e.demand > e.seats * 1.2 ? '<p class="warn">Talep koltuktan fazla: uçak ekle ya da bilet fiyatını artır.</p>' : ''}
         ${e.load < 0.6 && r.planes.length ? '<p class="warn">Doluluk düşük: fiyatı indir ya da bir uçağı başka rotaya al.</p>' : ''}`;
+      bindCharts(body.querySelector('#rtStats'), FMTS);
     };
     body.querySelector('#rtFare').oninput = e => { r.fareMul = e.target.value / 100; stats(); };
     body.querySelector('#rtFare').onchange = () => save();
@@ -457,6 +468,27 @@ function openRoute(r) {
     };
     stats();
   });
+}
+
+// Hat geçmişi grafikleri (son 60 gün)
+const FMTS = { money: v => money(v), num: v => num(v), pctf: v => pct(v) };
+const pctf = FMTS.pctf;
+const dayLbl = d => `Gün ${d}`;
+function routeCharts(r) {
+  const h = r.hist || [];
+  if (h.length < 2) return '';
+  const labels = h.map(x => dayLbl(x.d));
+  const nets = h.map(x => x.net);
+  const best = h.reduce((b, x) => x.net > b.net ? x : b, h[0]), worst = h.reduce((b, x) => x.net < b.net ? x : b, h[0]);
+  const hasShare = h.some(x => x.share != null && x.share < 0.999);
+  return `<h4>Son ${h.length} gün</h4>
+    <div class="chart-title">Günlük kâr</div>${barChart({ values: nets, labels, height: 70 })}
+    <div class="chart-title">Doluluk${hasShare ? ' <span style="color:#4cc9f0">· pazar payı</span>' : ''}</div>
+    ${lineChart({ series: [{ values: h.map(x => x.load), color: '#ffd166', label: 'doluluk', fill: true }].concat(hasShare ? [{ values: h.map(x => x.share ?? 1), color: '#4cc9f0', label: 'pay' }] : []), labels, height: 80, fmt: pctf, min: 0, max: 1 })}
+    <div class="grid2" style="margin-top:8px">
+      <div class="kv"><div class="k">En iyi gün (${best.d}. gün)</div><div class="v ${sign(best.net)}">${money(best.net)}</div></div>
+      <div class="kv"><div class="k">En kötü gün (${worst.d}. gün)</div><div class="v ${sign(worst.net)}">${money(worst.net)}</div></div>
+    </div>`;
 }
 
 // ---------- Rakipler ----------
@@ -681,12 +713,13 @@ function openMarket(tab) {
 }
 
 function acquire(ac, leased, cost, used = null) {
-  if (S.cash < cost) return toast('Kasada yeterli para yok.');
+  if (S.cash < cost) return toast('Kasada yeterli para yok.', 'error');
   S.cash -= cost;
   const f = { id: 'F' + S.seq++, type: ac.id, leased, reg: nextReg(), route: null, age: used ? used.age : 0, cond: used ? used.cond : 100 };
   if (used && leased) f.leaseDay = used.leaseDay;
   if (used) S.used = S.used.filter(x => x !== used);
   S.fleet.push(f);
+  fx('buy'); floatText('−' + money(cost), { good: false });
   save(); updateHUD(true); refreshSheet();
   toast(`${ac.name} (${f.reg}) filona katıldı${leased ? ' (kiralık)' : ''}${used ? ', ikinci el' : ''}.`);
 }
@@ -709,10 +742,18 @@ function renderLicense(body) {
           <button class="primary" style="margin-top:10px" ${paxOk && cashOk ? '' : 'disabled'}>Lisansı al (${money(t.fee)})</button>` : ''}`;
       if (next) row.querySelector('button').onclick = () => {
         S.cash -= t.fee; S.tier = t.id; save(); checkGoals();
-        toast(`Tebrikler! ${t.name} lisansı alındı.`);
-        if (t.id === 3) globe.flyTo(45, 25, 3.2);
-        if (t.id === 4) globe.flyTo(30, 30, 1.6);
         updateHUD(true); refreshSheet();
+        fx('fanfare');
+        const items = [t.desc];
+        if (planes) items.push('Yeni uçaklar: ' + planes);
+        const ups = P.UPGRADES.filter(u => u.tier === t.id).map(u => u.name).concat(P.MANAGERS.filter(m => m.tier === t.id).map(m => m.name));
+        if (ups.length) items.push('Açılanlar: ' + ups.join(', '));
+        hideSheet();
+        celebrate({ tag: 'Yeni lisans', title: `${t.name} lisansı`, text: `${S.name} artık ${t.name.toLocaleLowerCase('tr-TR')} bir havayolu.`, items, button: 'Haritaya dön' }).then(() => {
+          if (t.id === 2) { const b = AP[S.bases[0]]; globe.flyTo(b.lat, b.lon, 4.3); }
+          if (t.id === 3) globe.flyTo(45, 25, 3.2);
+          if (t.id === 4) globe.flyTo(30, 30, 1.6);
+        });
       };
       list.appendChild(row);
     }
@@ -753,7 +794,7 @@ function renderGoals(body) {
       ${g.ready ? '<button class="primary" style="margin-top:10px">Ödülü al</button>' : ''}`;
     if (g.ready) row.querySelector('button').onclick = () => {
       const r = P.claimGoal(S, g.id);
-      if (r) { toast(`Görev tamamlandı: +${money(r)}`); save(); updateHUD(); refreshSheet(); }
+      if (r) { fx('goal'); floatText('+' + money(r), { big: true }); pulse('cash'); toast(`Görev tamamlandı: +${money(r)}`); save(); updateHUD(); refreshSheet(); }
     };
     list.appendChild(row);
   }
@@ -772,7 +813,7 @@ function renderUpgrades(body) {
       ${maxed ? '<div class="s pos">En üst seviye</div>' : locked ? `<div class="s">🔒 ${TIERS[u.tier - 1].name} lisansı gerekir</div>` : `<div class="s">Sonraki: ${u.desc(L + 1)}</div>`}</div>
       ${maxed || locked ? '' : `<button class="sm" ${S.cash < cost ? 'disabled' : ''}>${money(cost)}</button>`}`;
     const b = row.querySelector('button');
-    if (b) b.onclick = () => { if (P.buyUpgrade(S, u.id)) { toast(`${u.name} seviye ${L + 1}`); save(); updateHUD(); syncGlobe(); refreshSheet(); } };
+    if (b) b.onclick = () => { if (P.buyUpgrade(S, u.id)) { fx('buy'); floatText('−' + money(cost), { good: false }); toast(`${u.name} seviye ${L + 1}`); save(); updateHUD(); syncGlobe(); refreshSheet(); } };
     list.appendChild(row);
   }
 }
@@ -790,7 +831,7 @@ function renderAuto(body) {
     const b = row.querySelector('button');
     if (b) b.onclick = () => {
       if (own) { own.on = !own.on; toast(`${m.name} ${own.on ? 'açıldı' : 'kapatıldı'}.`); }
-      else if (P.hireManager(S, m.id)) toast(`${m.name} işe alındı.`);
+      else if (P.hireManager(S, m.id)) { fx('buy'); toast(`${m.name} işe alındı.`); }
       save(); updateHUD(); refreshSheet();
     };
     list.appendChild(row);
@@ -819,7 +860,8 @@ function renderHolding(body) {
     ns.firstBase = S.firstBase || S.bases[0];
     startGame(ns);
     save();
-    toast(`Holding kuruldu! ★ ${legacy.stars} yıldızla yeniden başlıyorsun.`);
+    fx('fanfare');
+    celebrate({ tag: 'Holding', title: `★ ${legacy.stars} yıldız`, text: `${S.name} holdinge dönüştü. Yeni şirketin daha güçlü başlıyor.`, items: [P.prestigeText(legacy.stars)], button: 'Yeniden başla' });
   };
 }
 
@@ -828,17 +870,16 @@ function openReport(tab) {
   if (tab) reportTab = tab;
   openSheet('report', body => {
     body.innerHTML = `<h3>Rapor</h3><div class="meta">Gün ${S.day} · ${S.fleet.length} uçak · ${S.routes.length} rota</div>
-      <div class="tabs">${[['sum', 'Özet'], ['fin', 'Finans'], ['svc', 'Hizmet']].map(([k, l]) => `<button data-t="${k}" class="${k === reportTab ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="tabs">${[['sum', 'Özet'], ['stats', 'Grafikler'], ['fin', 'Finans'], ['svc', 'Hizmet']].map(([k, l]) => `<button data-t="${k}" class="${k === reportTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="repBody"></div>`;
     body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { reportTab = b.dataset.t; refreshSheet(); });
-    ({ sum: renderSummary, fin: renderFinance, svc: renderService })[reportTab](body.querySelector('#repBody'));
+    ({ sum: renderSummary, stats: renderStats, fin: renderFinance, svc: renderService })[reportTab](body.querySelector('#repBody'));
   });
 }
 
 function renderSummary(body) {
   const last = S.history[S.history.length - 1];
   const hist = S.history.slice(-30);
-  const max = Math.max(1, ...hist.map(h => Math.abs(h.profit)));
   const fixed = S.fleet.reduce((s, f) => s + sim.playerFixed(S, f), 0);
   body.innerHTML = `${last ? `<div class="grid2">
       <div class="kv"><div class="k">Dünkü gelir</div><div class="v">${money(last.revenue)}</div></div>
@@ -850,7 +891,8 @@ function renderSummary(body) {
       ${last.div ? `<div class="kv"><div class="k">Temettü</div><div class="v neg">${money(last.div)}</div></div>` : ''}
     </div>` : '<p class="meta">İlk gün henüz bitmedi. Gün sonunda (00:00) hesap yapılır.</p>'}
     <h4>Son ${hist.length} günün kârı</h4>
-    <div class="bars">${hist.map(h => `<div style="height:${Math.abs(h.profit) / max * 100}%;background:${h.profit >= 0 ? 'var(--good)' : 'var(--bad)'}"></div>`).join('')}</div>
+    ${barChart({ values: hist.map(h => h.profit), labels: hist.map(h => dayLbl(h.day)), height: 70 })}
+    <p class="meta" style="margin-top:6px">Daha fazla grafik ve rekorlar <b>Grafikler</b> sekmesinde.</p>
     <h4>Sabit giderler (günlük)</h4>
     <div class="grid2">
       <div class="kv"><div class="k">Uçak kira/bakım</div><div class="v">${money(fixed)}</div></div>
@@ -862,6 +904,60 @@ function renderSummary(body) {
     <h4>Rotalar</h4><div class="list" id="repRoutes"></div>`;
   const sorted = [...S.routes].sort((x, y) => (y.last?.net ?? 0) - (x.last?.net ?? 0));
   routeList(body.querySelector('#repRoutes'), sorted);
+  bindCharts(body, FMTS);
+}
+
+let statRange = 90;
+function renderStats(body) {
+  const hist = S.history.slice(-statRange);
+  const labels = hist.map(h => dayLbl(h.day));
+  const R = S.records || {};
+  const sorted = [...hist].sort((a, b) => b.profit - a.profit);
+  const best = sorted.slice(0, 3), worst = sorted.slice(-3).reverse().filter(h => !best.includes(h));
+  const sum = hist.reduce((a, h) => ({ rev: a.rev + h.revenue, prof: a.prof + h.profit, pax: a.pax + h.pax }), { rev: 0, prof: 0, pax: 0 });
+  const dayRow = h => `<div class="item" style="min-height:0"><div class="grow"><div class="t">Gün ${h.day}</div><div class="s">${num(h.pax)} yolcu · gelir ${money(h.revenue)}</div></div><div class="r ${sign(h.profit)}">${money(h.profit)}</div></div>`;
+  const routes = [...S.routes].filter(r => (r.hist || []).length).map(r => {
+    const h = r.hist.slice(-30); return { r, avg: h.reduce((s, x) => s + x.net, 0) / h.length, trend: h.map(x => x.net) };
+  }).sort((a, b) => b.avg - a.avg);
+  body.innerHTML = `<div class="tabs" id="stRange">${[[30, '30 gün'], [90, '90 gün'], [365, '1 yıl']].map(([d, l]) => `<button data-d="${d}" class="${d === statRange ? 'on' : ''}">${l}</button>`).join('')}</div>
+    ${hist.length < 2 ? '<p class="meta">Grafikler birkaç gün sonra dolmaya başlar.</p>' : `
+    <div class="grid2">
+      <div class="kv"><div class="k">Toplam kâr (${hist.length} gün)</div><div class="v ${sign(sum.prof)}">${money(sum.prof)}</div></div>
+      <div class="kv"><div class="k">Ortalama günlük kâr</div><div class="v ${sign(sum.prof)}">${money(sum.prof / hist.length)}</div></div>
+      <div class="kv"><div class="k">Toplam gelir</div><div class="v">${money(sum.rev)}</div></div>
+      <div class="kv"><div class="k">Taşınan yolcu</div><div class="v">${num(sum.pax)}</div></div>
+    </div>
+    <h4>Günlük kâr</h4>${barChart({ values: hist.map(h => h.profit), labels })}
+    <h4>Kasa</h4>${lineChart({ series: [{ values: hist.map(h => h.cash ?? null), color: '#ffd166', fill: true, label: 'kasa' }], labels, fmt: FMTS.money })}
+    <h4>Gelir ve gider</h4>${lineChart({ series: [{ values: hist.map(h => h.revenue), color: '#06d6a0', label: 'gelir' }, { values: hist.map(h => h.cost), color: '#ef476f', label: 'gider' }], labels, fmt: FMTS.money, zero: true })}
+    <div class="legend"><span style="--c:#06d6a0">Gelir</span><span style="--c:#ef476f">Gider</span></div>
+    <h4>Günlük yolcu</h4>${lineChart({ series: [{ values: hist.map(h => h.pax), color: '#4cc9f0', fill: true, label: 'yolcu' }].concat(hist.some(h => h.tpax) ? [{ values: hist.map(h => h.tpax || 0), color: '#c77dff', label: 'aktarma' }] : []), labels, fmt: FMTS.num, zero: true })}
+    ${hist.some(h => h.mshare != null) && (S.rivals || []).some(rv => rv.active) ? `<h4>Toplam pazar payın</h4><div class="meta">Senin yolcun ÷ (sen + tüm rakipler)</div>${lineChart({ series: [{ values: hist.map(h => h.mshare ?? null), color: '#ffd166', fill: true, label: 'pay' }], labels, fmt: FMTS.pctf, min: 0, max: Math.min(1, Math.max(0.2, ...hist.map(h => h.mshare || 0)) * 1.15) })}` : ''}
+    <h4>En iyi günler</h4><div class="list">${best.map(dayRow).join('')}</div>
+    ${worst.length ? `<h4>En kötü günler</h4><div class="list">${worst.map(dayRow).join('')}</div>` : ''}`}
+    <h4>Tüm zamanların rekorları</h4>
+    <div class="grid2">
+      <div class="kv"><div class="k">En kârlı gün${R.profit ? ` (${R.profit.day}. gün)` : ''}</div><div class="v pos">${R.profit ? money(R.profit.v) : '—'}</div></div>
+      <div class="kv"><div class="k">En çok yolcu${R.pax ? ` (${R.pax.day}. gün)` : ''}</div><div class="v">${R.pax ? num(R.pax.v) : '—'}</div></div>
+      <div class="kv"><div class="k">En yüksek kasa</div><div class="v">${R.cash ? money(R.cash.v) : '—'}</div></div>
+      <div class="kv"><div class="k">Toplam yolcu</div><div class="v">${num(S.totalPax)}</div></div>
+    </div>
+    ${routes.length ? `<h4>Hatlar (son 30 gün ortalaması)</h4><div class="list" id="stRoutes">${routes.map(({ r, avg, trend }) => `
+      <button class="item" data-r="${r.id}"><span class="swatch" style="background:${r.color}"></span>
+        <div class="grow"><div class="t">${r.a} ⇄ ${r.b}</div>${spark(trend)}</div>
+        <div class="r ${sign(avg)}">${money(avg)}<div class="s">/gün</div></div></button>`).join('')}</div>` : ''}`;
+  body.querySelectorAll('#stRange button').forEach(b => b.onclick = () => { statRange = Number(b.dataset.d); refreshSheet(); });
+  body.querySelectorAll('#stRoutes [data-r]').forEach(b => b.onclick = () => { const r = S.routes.find(x => x.id === b.dataset.r); if (r) openRoute(r); });
+  bindCharts(body, FMTS);
+}
+
+// Küçük eğilim çizgisi
+function spark(vals) {
+  if (vals.length < 2) return '';
+  const lo = Math.min(0, ...vals), hi = Math.max(0, ...vals), rg = hi - lo || 1;
+  const pts = vals.map((v, i) => `${(i / (vals.length - 1) * 100).toFixed(1)},${(22 - (v - lo) / rg * 20).toFixed(1)}`).join(' ');
+  const z = 22 - (0 - lo) / rg * 20;
+  return `<svg class="spark" viewBox="0 0 100 24" preserveAspectRatio="none"><line x1="0" x2="100" y1="${z}" y2="${z}" stroke="rgba(255,255,255,0.15)" vector-effect="non-scaling-stroke"/><polyline points="${pts}" fill="none" stroke="${vals[vals.length - 1] >= 0 ? 'var(--good)' : 'var(--bad)'}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>`;
 }
 
 let loanTerm = 360;
@@ -904,7 +1000,7 @@ function renderFinance(body) {
     const amt = Number(b.dataset.a), rate = D.loanRate(S, loanTerm);
     if (!confirm(`${money(amt)} kredi, ${loanTerm} gün vade, yıllık %${(rate * 100).toFixed(1)} faiz. Günlük taksit ${money(D.loanPayment(amt, rate, loanTerm))}. Onaylıyor musun?`)) return;
     const l = D.takeLoan(S, amt, loanTerm);
-    if (l) { toast(`Kredi alındı: +${money(l.amount)}`); save(); updateHUD(); refreshSheet(); }
+    if (l) { fx('coin'); floatText('+' + money(l.amount)); toast(`Kredi alındı: +${money(l.amount)}`); save(); updateHUD(); refreshSheet(); }
   });
   const ll = body.querySelector('#lnList');
   for (const l of loans) {
@@ -920,7 +1016,7 @@ function renderFinance(body) {
     const val = D.sellValue(S);
     if (!confirm(`Şirketin %10'u ${money(val)} karşılığında satılsın mı? Ortaklar kârdan temettü alır ve holding yıldızların payına göre azalır.`)) return;
     const got = D.sellShares(S);
-    if (got) { toast(`${(S.float || 0) <= 0.1 ? 'Halka arz tamamlandı' : 'Hisse satıldı'}: +${money(got)}`); save(); updateHUD(); refreshSheet(); checkGoals(); }
+    if (got) { fx('coin'); floatText('+' + money(got)); toast(`${(S.float || 0) <= 0.1 ? 'Halka arz tamamlandı' : 'Hisse satıldı'}: +${money(got)}`); save(); updateHUD(); refreshSheet(); checkGoals(); }
   };
   body.querySelector('#shBuy').onclick = () => {
     const c = D.buyBack(S);
@@ -998,13 +1094,22 @@ function updateHUD() {
   updateHint();
 }
 
-document.querySelectorAll('.speed button').forEach(b => b.onclick = () => {
-  speed = Number(b.dataset.speed);
-  document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', x === b));
+function setSpeed(v) {
+  speed = v;
+  document.querySelectorAll('.speed button').forEach(x => x.classList.toggle('on', Number(x.dataset.speed) === v));
+}
+document.querySelectorAll('.speed button').forEach(b => b.onclick = () => setSpeed(Number(b.dataset.speed)));
+// Klavye: boşluk duraklatır, 1-3 hız
+window.addEventListener('keydown', e => {
+  if (!S || S.over || /INPUT|SELECT|TEXTAREA/.test(document.activeElement?.tagName || '')) return;
+  if (e.code === 'Space') { e.preventDefault(); setSpeed(speed ? 0 : (settings.speed || 1)); }
+  else if (e.key === '1') setSpeed(1); else if (e.key === '2') setSpeed(4); else if (e.key === '3') setSpeed(16);
+  else if (e.key === 'Escape') { if (panel) closeSheet(); else if (pickFrom) cancelPick(); }
 });
 
 let toastTimer = 0;
-function toast(msg) {
+function toast(msg, sound) {
+  if (sound) fx(sound);
   const t = $('toast');
   t.textContent = msg; t.classList.add('show');
   clearTimeout(toastTimer);
@@ -1037,6 +1142,7 @@ function showOffline(ms) {
   $('btnOffline').onclick = () => {
     S.cash += o.money; S.totalPax += o.pax;
     $('offline').classList.remove('show');
+    if (o.money > 0) { fx('coin'); floatText('+' + money(o.money), { big: true }); pulse('cash'); }
     save(); updateHUD(); checkGoals();
     if (o.money > 0) toast(`Çevrimdışı kazanç: +${money(o.money)}`);
   };
@@ -1056,6 +1162,7 @@ window.addEventListener('pagehide', () => save());
 function endOfDay() {
   const rec = sim.settleDay(S);
   D.dailyFinance(S, rec);
+  recordStats(rec);
   const news = spawnRivals(S);
   if (S.day % 7 === 0) news.push(...weeklyRivals(S));
   news.push(...dailyEvents(S));
@@ -1065,12 +1172,59 @@ function endOfDay() {
   syncGlobe();
   save();
   if (panel && ['report', 'routes', 'license', 'fleet', 'rivals', 'news', 'route', 'airport', 'market'].includes(panel.name)) refreshSheet();
-  if (S.pendingDecision && !$('decision').classList.contains('show')) showDecision();
+  if (S.pendingDecision && !$('decision').classList.contains('show')) { showDecision(); fx('notify'); }
   checkGoals();
+  // Gün sonu geri bildirimi: kasanın yanında uçan kâr, rekorlar
+  if (rec.pax || rec.profit) {
+    floatText((rec.profit >= 0 ? '+' : '−') + money(Math.abs(rec.profit)).replace('−', ''), { good: rec.profit >= 0 });
+    pulse('cash', rec.profit >= 0);
+    if (speed <= 4) play(rec.profit >= 0 ? 'coin' : 'loss');
+  }
+  const recs = checkRecords(rec);
   const imp = news.filter(n => n.important);
-  if (imp.length) toast(imp[0].text + (imp.length > 1 ? ` (+${imp.length - 1} haber daha, Haberler'e bak)` : ''));
+  if (recs.length) { fx('record'); confetti(70, cashPoint()); toast('🏆 ' + recs.join(' · ')); }
+  else if (imp.length) { fx(imp.some(n => /^#(ef476f|e85d04|e63946|e76f51)/i.test(n.color || '')) ? 'bad' : 'notify'); toast(imp[0].text + (imp.length > 1 ? ` (+${imp.length - 1} haber daha, Haberler'e bak)` : '')); }
   else if (S.day % 7 === 0) toast(`Hafta özeti: dünkü kâr ${money(rec.profit)} · ${num(rec.pax)} yolcu`);
   if (S.cash < sim.BANKRUPT) gameOver();
+}
+
+const cashPoint = () => { const r = $('cash').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom }; };
+
+// Günlük istatistik: kasa, pazar payı ve hat geçmişi
+function recordStats(rec) {
+  rec.cash = Math.round(S.cash);
+  const rivalPax = (S.rivals || []).filter(rv => rv.active).reduce((s, rv) => s + (rv.lastPax || 0), 0);
+  rec.mshare = rec.pax + rivalPax ? rec.pax / (rec.pax + rivalPax) : 1;
+  rec.routes = S.routes.length; rec.fleet = S.fleet.length;
+  for (const r of S.routes) {
+    if (!r.last) continue;
+    r.hist = r.hist || [];
+    r.hist.push({ d: S.day, net: Math.round(r.last.net), load: +r.last.load.toFixed(3), share: r.last.share == null ? null : +r.last.share.toFixed(3), pax: r.last.pax });
+    if (r.hist.length > 60) r.hist.shift();
+  }
+}
+
+// Tüm zamanların rekorları (geçmiş 400 günle sınırlı olduğu için ayrı tutulur)
+function checkRecords(rec) {
+  const fresh = !S.records;
+  const R = S.records = S.records || {};
+  const out = [];
+  const beat = (key, val, label, minDay = 3) => {
+    const old = R[key];
+    if (!old || val > old.v) {
+      R[key] = { v: val, day: S.day };
+      if (old && S.day > minDay && old.v > 0) out.push(label);
+    }
+  };
+  beat('profit', rec.profit, `Rekor: en kârlı gün (${money(rec.profit)})`);
+  beat('pax', rec.pax, `Rekor: bir günde ${num(rec.pax)} yolcu`);
+  if (!R.worst || rec.profit < R.worst.v) R.worst = { v: rec.profit, day: S.day };
+  if (!R.cash || S.cash > R.cash.v) R.cash = { v: S.cash, day: S.day };
+  // Yolcu kilometre taşları
+  const MS = [1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
+  const ms = MS.filter(m => S.totalPax >= m).pop();
+  if (ms && (R.paxMs || 0) < ms) { if (!fresh) out.push(`${num(ms)}. yolcu taşındı!`); R.paxMs = ms; }
+  return out;
 }
 
 function gameOver() {
@@ -1095,7 +1249,7 @@ function frame(now) {
   traffic.tick(dt);
   hudAcc += dt;
   if (hudAcc > 0.25) { hudAcc = 0; updateHUD(); updateMarkers(); }
-  goalAcc += dt; if (goalAcc > 2) { goalAcc = 0; checkGoals(); }
+  goalAcc += dt; if (goalAcc > 2) { goalAcc = 0; checkGoals(); checkTips(); }
   requestAnimationFrame(frame);
 }
 
@@ -1124,6 +1278,8 @@ function startGame(state) {
   const b = AP[S.bases[0]];
   globe.flyTo(b.lat, b.lon, S.tier >= 4 ? 1.8 : S.tier >= 3 ? 3.2 : 5);
   hintKey = ''; updateHUD();
+  setSpeed(settings.speed || 1);
+  tipShown = null; hideTip();
 }
 
 function setupStart() {
@@ -1151,8 +1307,157 @@ $('btnNew').onclick = () => {
 };
 $('btnRestart').onclick = () => { $('gameover').classList.remove('show'); S = null; syncGlobe(); setupStart(); $('start').classList.add('show'); };
 
+// ---------- Ayarlar ----------
+function openSettings() {
+  selRoute = null; selAirport = null;
+  openSheet('settings', body => {
+    const tog = (k, label, desc) => `<label class="item check"><div class="grow"><div class="t">${label}</div>${desc ? `<div class="s">${desc}</div>` : ''}</div><input type="checkbox" data-k="${k}" ${settings[k] ? 'checked' : ''}></label>`;
+    body.innerHTML = `<h3>Ayarlar</h3><div class="meta">SkyWeave ${VERSION} · ayarlar bu cihazda saklanır</div>
+      <h4>Ses</h4>
+      <div class="list">
+        ${tog('sfx', 'Ses efektleri', 'Kalkış, para, rekor ve bildirim sesleri')}
+        ${tog('music', 'Müzik', 'Sakin arka plan müziği')}
+        <div class="item" style="flex-direction:column;align-items:stretch"><div class="t">Ses düzeyi <span class="s" id="volLbl">${pct(settings.volume)}</span></div>
+          <input type="range" class="slider" id="setVol" min="0" max="100" step="5" value="${Math.round(settings.volume * 100)}"></div>
+        ${'vibrate' in navigator ? tog('haptics', 'Titreşim', 'Satın alma, rekor ve uyarılarda kısa titreşim') : ''}
+      </div>
+      <h4>Oyun</h4>
+      <div class="list">
+        <div class="item"><div class="grow"><div class="t">Açılış hızı</div><div class="s">Oyun açıldığında bu hızla başlar. Klavyede boşluk duraklatır, 1–3 hızı seçer.</div></div>
+          <div class="tabs" id="setSpeed" style="margin:0">${[1, 4, 16].map(v => `<button data-v="${v}" class="${settings.speed === v ? 'on' : ''}">${v}×</button>`).join('')}</div></div>
+        ${tog('tips', 'İpuçları', 'Oyun ilerledikçe yeni sistemleri anlatan kartlar')}
+        <div class="item"><div class="grow"><div class="t">Dil</div><div class="s">Şimdilik yalnızca Türkçe.</div></div><b>Türkçe</b></div>
+      </div>
+      <div class="row"><button id="setGuide">Nasıl oynanır</button><button id="setTipsReset">İpuçlarını baştan göster</button></div>
+      <h4>Kayıt</h4>
+      <p class="meta">Oyun her gün sonunda bu cihaza kaydedilir. Başka bir cihaza taşımak için kaydı dosya ya da kod olarak dışa aktar, öbür cihazda içe aktar.</p>
+      <div class="row"><button id="setExport" class="primary">Dosyaya kaydet</button><button id="setCopy">Kodu kopyala</button></div>
+      <div class="row"><button id="setImport">İçe aktar</button></div>
+      <h4>Tehlikeli bölge</h4>
+      <div class="row"><button id="setReset" class="danger">Oyunu sıfırla</button></div>
+      <p class="meta" style="margin-top:14px">Harita: © OpenStreetMap katkıcıları, OpenFreeMap, OpenMapTiles. Harita motoru: MapLibre GL JS.</p>`;
+    body.querySelectorAll('input[data-k]').forEach(i => i.onchange = () => {
+      settings[i.dataset.k] = i.checked; saveSettings(); applyVolume();
+      if (i.dataset.k === 'sfx' && i.checked) play('coin');
+      if (i.dataset.k === 'haptics' && i.checked) fx('buy');
+      if (i.dataset.k === 'tips' && !i.checked) hideTip();
+    });
+    const vol = body.querySelector('#setVol');
+    vol.oninput = () => { settings.volume = vol.value / 100; body.querySelector('#volLbl').textContent = pct(settings.volume); applyVolume(); };
+    vol.onchange = () => { saveSettings(); play('coin'); };
+    body.querySelectorAll('#setSpeed button').forEach(b => b.onclick = () => { settings.speed = Number(b.dataset.v); saveSettings(); setSpeed(settings.speed); refreshSheet(); });
+    body.querySelector('#setGuide').onclick = openGuide;
+    body.querySelector('#setTipsReset').onclick = () => { settings.tipsSeen = []; settings.tips = true; saveSettings(); toast('İpuçları yeniden gösterilecek.'); refreshSheet(); };
+    body.querySelector('#setExport').onclick = async () => {
+      save();
+      const code = await encodeSave(S);
+      const safe = S.name.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '').toLowerCase() || 'kayit';
+      downloadText(`skyweave-${safe}-gun${S.day}.skyweave.txt`, code, 'text/plain');
+      toast('Kayıt dosyası indirildi.');
+    };
+    body.querySelector('#setCopy').onclick = async () => {
+      save();
+      const code = await encodeSave(S);
+      try { await navigator.clipboard.writeText(code); toast(`Kayıt kodu kopyalandı (${Math.ceil(code.length / 1024)} KB).`); }
+      catch (_) { openImport(code); }
+    };
+    body.querySelector('#setImport').onclick = () => openImport();
+    body.querySelector('#setReset').onclick = () => {
+      if (!confirm('Oyun tamamen silinsin mi? Holding yıldızların dahil her şey kaybolur. Bu geri alınamaz.')) return;
+      try { localStorage.removeItem(SAVE_KEY); } catch (_) { /* yok */ }
+      S = null; closeSheet(); syncGlobe(); updateMarkers(); setupStart(); $('start').classList.add('show');
+    };
+  });
+}
+$('btnSettings').onclick = () => { if (S && !S.over) { if (panel && panel.name === 'settings') closeSheet(); else openSettings(); } };
+
+function openGuide() {
+  openSheet('guide', body => {
+    body.innerHTML = `<h3>Nasıl oynanır</h3><div class="meta">Bir başlığa dokunarak aç.</div>
+      <div class="list">${GUIDE.map(([t, x], i) => `<details class="item guide" ${i < 2 ? 'open' : ''}><summary class="t">${t}</summary><div class="s">${x}</div></details>`).join('')}</div>
+      <div class="row"><button id="gBack" class="ghost">Ayarlara dön</button></div>`;
+    body.querySelector('#gBack').onclick = openSettings;
+  });
+}
+
+// Kayıt içe aktarma kartı (açılış ekranından da açılır). code verilirse kopyalanacak kodu gösterir.
+function openImport(code) {
+  const o = $('importBox'), ta = $('impText');
+  $('impTitle').textContent = code ? 'Kayıt kodun' : 'Kaydı içe aktar';
+  $('impNote').textContent = code ? 'Panoya erişilemedi. Kodu seçip kopyala, öbür cihazda İçe aktar ekranına yapıştır.' : 'Kayıt dosyasını seç ya da kayıt kodunu aşağıya yapıştır. Bu cihazdaki mevcut oyunun yerini alır.';
+  ta.value = code || ''; ta.readOnly = !!code;
+  $('impFileRow').style.display = code ? 'none' : '';
+  $('impGo').style.display = code ? 'none' : '';
+  $('impErr').textContent = '';
+  o.classList.add('show');
+  if (code) setTimeout(() => ta.select(), 50);
+}
+$('impCancel').onclick = () => $('importBox').classList.remove('show');
+$('impFile').onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  $('impText').value = await f.text(); e.target.value = '';
+  $('impGo').click();
+};
+$('impGo').onclick = async () => {
+  try {
+    const st = await decodeSave($('impText').value);
+    st.name = String(st.name || 'Havayolu').slice(0, 24);
+    if (st.over) throw new Error('Bu kayıt iflas etmiş bir oyuna ait.');
+    if (S && !confirm(`"${st.name}" (gün ${st.day}) yüklensin mi? Şu anki oyunun yerini alacak.`)) return;
+    $('importBox').classList.remove('show');
+    st.lastSeen = Date.now(); // başka cihazda geçen süre çevrimdışı kazanç sayılmaz
+    startGame(st); save();
+    fx('goal'); toast(`Kayıt yüklendi: ${st.name} · gün ${st.day}`);
+  } catch (err) { $('impErr').textContent = err.message || 'Kayıt okunamadı.'; fx('error'); }
+};
+$('btnImportStart').onclick = () => openImport();
+
+// ---------- Bağlamsal ipuçları ----------
+let tipShown = null, tipAcc = 0;
+function hideTip() { $('coach').classList.remove('show'); }
+function checkTips() {
+  if (!S || S.over || !settings.tips || tipShown || pickFrom || panel || document.querySelector('.overlay.show')) return;
+  if ($('hint').classList.contains('show')) return; // önce ana adımlar
+  const t = nextTip(S, settings.tipsSeen);
+  if (!t) return;
+  tipShown = t;
+  const c = $('coach');
+  c.querySelector('.ct').textContent = t.title;
+  c.querySelector('.cx').innerHTML = t.text;
+  const go = c.querySelector('.cgo');
+  go.style.display = t.open ? '' : 'none';
+  go.textContent = t.btn || 'Göster';
+  c.querySelector('.cstep').textContent = `İpucu ${settings.tipsSeen.length + 1}/${TIPS.length}`;
+  c.classList.add('show');
+  play('notify');
+}
+function dismissTip(open) {
+  if (!tipShown) return;
+  const t = tipShown;
+  settings.tipsSeen.push(t.id); saveSettings();
+  tipShown = null; hideTip();
+  if (open && t.open) {
+    const [p, tab] = t.open;
+    ({ routes: openRoutes, fleet: openFleet, license: () => openGrowth(tab), report: () => openReport(tab), rivals: openRivals, news: openNews })[p]();
+  }
+}
+$('coach').querySelector('.cok').onclick = () => dismissTip(false);
+$('coach').querySelector('.cgo').onclick = () => dismissTip(true);
+$('coach').querySelector('.coff').onclick = () => { settings.tips = false; saveSettings(); dismissTip(false); toast('İpuçları kapatıldı. Ayarlar\'dan açabilirsin.'); };
+
+// Düğmelere hafif tık sesi
+document.addEventListener('click', e => {
+  const b = e.target.closest('button');
+  if (b && !b.disabled) play('click');
+}, true);
+
+// ---------- Uygulama olarak kurulum (PWA) ----------
+if ('serviceWorker' in navigator && location.protocol !== 'file:' && !location.search.includes('nosw')) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => { /* desteklenmiyor */ }));
+}
+
 setupStart();
 requestAnimationFrame(frame);
 
 // Test için: ?debug ile açınca konsoldan erişilebilir.
-if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute, D, openAirport, openRoute, openFleet, openMarket, openReport };
+if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute, D, openAirport, openRoute, openFleet, openMarket, openReport, openSettings, checkTips, endOfDayN: n => { for (let i = 0; i < n; i++) endOfDay(); } };

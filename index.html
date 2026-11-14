@@ -5,8 +5,16 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <meta name="theme-color" content="#04070d">
 <title>SkyWeave</title>
+<meta name="description" content="Türkiye'de küçük bir bölgesel havayolu kur, dünyaya açıl.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="SkyWeave">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css">
-<link rel="stylesheet" href="css/style.css?v=11">
+<link rel="stylesheet" href="css/style.css?v=12">
 </head>
 <body>
 <div id="globe"></div>
@@ -20,6 +28,7 @@
     <div class="stat"><span class="lbl">Kasa</span><span id="cash" class="val">$0</span></div>
     <div class="stat"><span class="lbl" id="dateLbl">—</span><span id="clock" class="val">—</span></div>
     <button id="btnNews" class="news-btn" aria-label="Haberler">Haberler<span id="newsBadge"></span></button>
+    <button id="btnSettings" class="gear-btn" aria-label="Ayarlar">⚙</button>
   </div>
   <div class="speed">
     <button data-speed="0" aria-label="Duraklat">❚❚</button>
@@ -47,6 +56,36 @@
 
 <div id="toast"></div>
 
+<div id="coach" role="status">
+  <div class="cstep"></div>
+  <div class="ct"></div>
+  <div class="cx"></div>
+  <div class="row"><button class="cok sm">Anladım</button><button class="cgo sm primary">Göster</button></div>
+  <button class="coff">İpuçlarını kapat</button>
+</div>
+
+<div id="celebrate" class="overlay">
+  <div class="card cel">
+    <div class="tag"></div>
+    <div class="cel-ic">✈</div>
+    <h2></h2>
+    <p class="sub"></p>
+    <ul class="cel-list"></ul>
+    <button class="primary big">Devam</button>
+  </div>
+</div>
+
+<div id="importBox" class="overlay">
+  <div class="card">
+    <h2 id="impTitle">Kaydı içe aktar</h2>
+    <p class="sub" id="impNote"></p>
+    <div id="impFileRow"><label class="filebtn">Kayıt dosyası seç<input type="file" id="impFile" accept=".txt,.json,.skyweave,text/plain,application/json"></label></div>
+    <textarea id="impText" rows="5" placeholder="SW1.…" spellcheck="false"></textarea>
+    <p class="err" id="impErr"></p>
+    <div class="row"><button id="impCancel" class="ghost">Kapat</button><button id="impGo" class="primary">Yükle</button></div>
+  </div>
+</div>
+
 <div id="start" class="overlay show">
   <div class="card">
     <h1>SkyWeave</h1>
@@ -55,6 +94,7 @@
     <label>Havayolu adı<input id="nameInput" maxlength="24" value="Anadolu Kanatları"></label>
     <label>İlk üssün<select id="baseInput"></select></label>
     <button id="btnNew" class="primary big">Yeni oyun</button>
+    <button id="btnImportStart" class="ghost big" style="margin-top:8px">Başka cihazdan kayıt yükle</button>
     <p class="tiny">Döndürmek için sürükle, yakınlaşmak için iki parmakla sıkıştır (fare tekerleği). Bir havalimanına iyice yakınlaşınca gerçek pistleri ve 3B binaları görürsün.</p>
   </div>
 </div>
@@ -91,6 +131,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
-<script type="module" src="js/main.js?v=11"></script>
+<script type="module" src="js/main.js?v=12"></script>
 </body>
 </html>

@@ -388,7 +388,7 @@ export function settleDay(S) {
   S.day++;
   const rec = { day: S.day, revenue, cost, profit: revenue - cost, pax, tpax: Math.round(tpax) };
   S.history.push(rec);
-  if (S.history.length > 60) S.history.shift();
+  if (S.history.length > 400) S.history.shift();
   return rec;
 }
 
