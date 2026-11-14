@@ -1,10 +1,11 @@
 // Oyun döngüsü, arayüz ve kayıt.
 import { Globe } from './globe.js';
-import { AirportTraffic } from './traffic3d.js?v=9';
+import { AirportTraffic } from './traffic3d.js?v=10';
 import { AIRPORTS, AIRCRAFT, TIERS, ZONES } from './data.js';
 import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
 import { dailyEvents, decisionView, decide, describeEvent } from './events.js';
+import * as P from './progress.js';
 
 const { AP, AC } = sim;
 const SAVE_KEY = 'skyweave-save-v2';
@@ -56,10 +57,11 @@ const tier = () => sim.tierOf(S);
 const fleetById = id => S.fleet.find(f => f.id === id);
 
 // ---------- Durum ve kayıt ----------
-function newState(name, base) {
-  return { v: 2, name, t: 0, day: 0, cash: 15e6, tier: 1, bases: [base], fleet: [], routes: [], totalPax: 0, history: [], seq: 1, regSeq: 0, over: false, rivals: [], news: [], events: [], newsSeen: 0 };
+function newState(name, base, legacy = null) {
+  return { v: 2, name, t: 0, day: 0, cash: 15e6, tier: 1, bases: [base], fleet: [], routes: [], totalPax: 0, history: [], seq: 1, regSeq: 0, over: false, rivals: [], news: [], events: [], newsSeen: 0,
+    upgrades: {}, managers: {}, goalsDone: [], goalsNotified: [], legacy, lastSeen: Date.now(), cashBonus: 0 };
 }
-function save() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
+function save() { try { if (S) S.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.v === 2 && !s.over ? s : null; } catch (_) { return null; }
 }
@@ -292,6 +294,15 @@ function openPlanner(a, b) {
   });
 }
 
+function addRoute(a, b, planeIds, fareMul = 1) {
+  const used = new Set(S.routes.map(r => r.color));
+  const color = ROUTE_COLORS.find(c => !used.has(c)) || ROUTE_COLORS[S.routes.length % ROUTE_COLORS.length];
+  const r = { id: 'R' + S.seq++, a: a.c, b: b.c, fareMul, planes: planeIds, color, age: 0, last: null };
+  planeIds.forEach(id => { fleetById(id).route = r.id; });
+  S.routes.push(r);
+  return r;
+}
+
 function createRoute(a, b, planeIds, fareMul) {
   const used = new Set(S.routes.map(r => r.color));
   const color = ROUTE_COLORS.find(c => !used.has(c)) || ROUTE_COLORS[S.routes.length % ROUTE_COLORS.length];
@@ -348,7 +359,7 @@ function openRoute(r) {
         </div>
         ${routeEventWarnings(r)}
         ${compList(e.comps)}
-        ${r.age < sim.RAMP_DAYS ? `<p class="meta" style="margin-top:8px">Rota yeni: talep şu an tam seviyenin %${Math.round(100 * Math.min(1, 0.4 + 0.6 * r.age / sim.RAMP_DAYS))}'ında.</p>` : ''}
+        ${sim.rampP(S, r.age) < 1 ? `<p class="meta" style="margin-top:8px">Rota yeni: talep şu an tam seviyenin %${Math.round(100 * sim.rampP(S, r.age))}'ında.</p>` : ''}
         ${e.load > 0.98 && e.demand > e.seats * 1.2 ? '<p class="warn">Talep koltuktan fazla: uçak ekle ya da bilet fiyatını artır.</p>' : ''}
         ${e.load < 0.6 && r.planes.length ? '<p class="warn">Doluluk düşük: fiyatı indir ya da bir uçağı başka rotaya al.</p>' : ''}`;
     };
@@ -568,9 +579,9 @@ function acquire(ac, leased, cost) {
   toast(`${ac.name} (${f.reg}) filona katıldı${leased ? ' (kiralık)' : ''}.`);
 }
 
-function openLicense() {
-  openSheet('license', body => {
-    body.innerHTML = `<h3>Lisanslar</h3><div class="meta">Toplam taşınan yolcu: <b>${num(S.totalPax)}</b></div><div class="list" id="lList"></div>`;
+function renderLicense(body) {
+  {
+    body.innerHTML = `<h4>Lisanslar</h4><div class="meta">Toplam taşınan yolcu: <b>${num(S.totalPax)}</b></div><div class="list" id="lList"></div>`;
     const list = body.querySelector('#lList');
     for (const t of TIERS) {
       const have = S.tier >= t.id, next = t.id === S.tier + 1;
@@ -585,7 +596,7 @@ function openLicense() {
           <div class="progress"><div style="width:${Math.min(100, S.totalPax / t.pax * 100)}%"></div></div>
           <button class="primary" style="margin-top:10px" ${paxOk && cashOk ? '' : 'disabled'}>Lisansı al (${money(t.fee)})</button>` : ''}`;
       if (next) row.querySelector('button').onclick = () => {
-        S.cash -= t.fee; S.tier = t.id; save();
+        S.cash -= t.fee; S.tier = t.id; save(); checkGoals();
         toast(`Tebrikler! ${t.name} lisansı alındı.`);
         if (t.id === 3) globe.flyTo(45, 25, 3.2);
         if (t.id === 4) globe.flyTo(30, 30, 1.6);
@@ -593,7 +604,111 @@ function openLicense() {
       };
       list.appendChild(row);
     }
+  }
+}
+
+// ---------- Gelişim paneli ----------
+let growthTab = 'goals';
+const GROWTH_TABS = [['goals', 'Görevler'], ['upgrades', 'Yükseltmeler'], ['auto', 'Otomasyon'], ['license', 'Lisans'], ['holding', 'Holding']];
+function openGrowth(tab) {
+  if (tab) growthTab = tab;
+  selRoute = null; selAirport = null;
+  openSheet('license', body => {
+    const gs = P.goalState(S);
+    body.innerHTML = `<h3>Gelişim</h3>
+      <div class="tabs">${GROWTH_TABS.map(([k, l]) => `<button data-t="${k}" class="${k === growthTab ? 'on' : ''}">${l}${k === 'goals' && gs.claimable ? '<i class="dot"></i>' : ''}</button>`).join('')}</div>
+      <div id="gBody"></div>`;
+    body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { growthTab = b.dataset.t; refreshSheet(); });
+    const gb = body.querySelector('#gBody');
+    ({ goals: renderGoals, upgrades: renderUpgrades, auto: renderAuto, license: renderLicense, holding: renderHolding })[growthTab](gb);
   });
+}
+
+function renderGoals(body) {
+  const gs = P.goalState(S);
+  body.innerHTML = `<div class="meta">Tamamlanan görevler: <b>${gs.doneCount} / ${gs.total}</b></div>
+    <div class="progress" style="margin-bottom:12px"><div style="width:${gs.doneCount / gs.total * 100}%"></div></div>
+    <div class="list" id="goalList"></div>`;
+  const list = body.querySelector('#goalList');
+  if (!gs.active.length) list.innerHTML = '<p class="warn">Tüm görevleri tamamladın! Holding kurarak yeniden başlayabilirsin.</p>';
+  for (const g of gs.active) {
+    const row = document.createElement('div');
+    row.className = 'item';
+    row.style.flexDirection = 'column'; row.style.alignItems = 'stretch';
+    row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px"><div class="t">${g.text}</div><div class="r pos">${money(g.reward)}</div></div>
+      <div class="s">${num(g.cur)} / ${num(g.target)}</div>
+      <div class="progress"><div style="width:${Math.min(100, g.cur / g.target * 100)}%"></div></div>
+      ${g.ready ? '<button class="primary" style="margin-top:10px">Ödülü al</button>' : ''}`;
+    if (g.ready) row.querySelector('button').onclick = () => {
+      const r = P.claimGoal(S, g.id);
+      if (r) { toast(`Görev tamamlandı: +${money(r)}`); save(); updateHUD(); refreshSheet(); }
+    };
+    list.appendChild(row);
+  }
+}
+
+function renderUpgrades(body) {
+  body.innerHTML = '<div class="meta">Kalıcı iyileştirmeler. Her seviye bir öncekinden pahalı.</div><div class="list" id="upList"></div>';
+  const list = body.querySelector('#upList');
+  for (const u of P.UPGRADES) {
+    const L = sim.lvl(S, u.id), maxed = L >= u.max, locked = S.tier < u.tier;
+    const cost = P.upgradeCost(u, L);
+    const row = document.createElement('div');
+    row.className = 'item' + (locked ? ' locked-item' : '');
+    row.innerHTML = `<div class="grow"><div class="t">${u.name} <span class="lv">${'●'.repeat(L)}${'○'.repeat(u.max - L)}</span></div>
+      <div class="s">${L ? 'Şu an: ' + u.desc(L) : 'Henüz yok'}</div>
+      ${maxed ? '<div class="s pos">En üst seviye</div>' : locked ? `<div class="s">🔒 ${TIERS[u.tier - 1].name} lisansı gerekir</div>` : `<div class="s">Sonraki: ${u.desc(L + 1)}</div>`}</div>
+      ${maxed || locked ? '' : `<button class="sm" ${S.cash < cost ? 'disabled' : ''}>${money(cost)}</button>`}`;
+    const b = row.querySelector('button');
+    if (b) b.onclick = () => { if (P.buyUpgrade(S, u.id)) { toast(`${u.name} seviye ${L + 1}`); save(); updateHUD(); syncGlobe(); refreshSheet(); } };
+    list.appendChild(row);
+  }
+}
+
+function renderAuto(body) {
+  body.innerHTML = '<div class="meta">Müdürler oyunu senin yerine yönetir. Maaşları her gün genel gidere eklenir.</div><div class="list" id="mgList"></div>';
+  const list = body.querySelector('#mgList');
+  for (const m of P.MANAGERS) {
+    const own = S.managers && S.managers[m.id], locked = S.tier < m.tier;
+    const row = document.createElement('div');
+    row.className = 'item' + (locked ? ' locked-item' : '');
+    row.innerHTML = `<div class="grow"><div class="t">${m.name}</div><div class="s">${m.desc}</div>
+      <div class="s">Maaş ${money(m.salary)}/gün${locked ? ` · 🔒 ${TIERS[m.tier - 1].name} lisansı gerekir` : ''}</div></div>
+      ${locked ? '' : own ? `<button class="sm ${own.on ? 'on' : ''}">${own.on ? 'Açık' : 'Kapalı'}</button>` : `<button class="sm" ${S.cash < m.cost ? 'disabled' : ''}>İşe al ${money(m.cost)}</button>`}`;
+    const b = row.querySelector('button');
+    if (b) b.onclick = () => {
+      if (own) { own.on = !own.on; toast(`${m.name} ${own.on ? 'açıldı' : 'kapatıldı'}.`); }
+      else if (P.hireManager(S, m.id)) toast(`${m.name} işe alındı.`);
+      save(); updateHUD(); refreshSheet();
+    };
+    list.appendChild(row);
+  }
+}
+
+function renderHolding(body) {
+  const st = P.starsFor(S), have = P.legacyStars(S), can = P.canPrestige(S);
+  body.innerHTML = `<div class="meta">Holding kurduğunda şirketin sıfırdan başlar ama kazandığın yıldızlar kalıcıdır.</div>
+    <div class="grid2">
+      <div class="kv"><div class="k">Şirket değeri</div><div class="v">${money(P.companyValue(S))}</div></div>
+      <div class="kv"><div class="k">Kazanacağın yıldız</div><div class="v">★ ${st}</div></div>
+      <div class="kv"><div class="k">Sahip olduğun yıldız</div><div class="v">★ ${have}</div></div>
+      <div class="kv"><div class="k">Kurulan holding</div><div class="v">${(S.legacy && S.legacy.count) || 0}</div></div>
+    </div>
+    <p class="meta" style="margin-top:10px">Şu anki bonusun: ${P.prestigeText(have)}.<br>Holding sonrası: ${P.prestigeText(have + st)}.</p>
+    <p class="meta">Sıfırlananlar: kasa, filo, hatlar, üsler, lisans, yükseltmeler, müdürler, görevler, rakipler. Kalanlar: yıldızlar ve havayolu adın.</p>
+    ${can ? '' : '<p class="warn">Holding kurmak için en az Kıtasal lisans ve 1 yıldızlık şirket değeri ($25M) gerekir.</p>'}
+    <div class="row"><button id="btnPrestige" class="primary" ${can ? '' : 'disabled'}>Holding kur ve yeniden başla (★ +${st})</button></div>`;
+  body.querySelector('#btnPrestige').onclick = () => {
+    if (!P.canPrestige(S)) return;
+    if (!confirm(`Holding kurulsun mu? Şirketin sıfırlanacak, ★ ${st} yıldız kazanacaksın. Bu geri alınamaz.`)) return;
+    const legacy = { count: ((S.legacy && S.legacy.count) || 0) + 1, stars: have + st };
+    const ns = newState(S.name, S.firstBase || S.bases[0], legacy);
+    ns.cash += 1e6 * legacy.stars;
+    ns.firstBase = S.firstBase || S.bases[0];
+    startGame(ns);
+    save();
+    toast(`Holding kuruldu! ★ ${legacy.stars} yıldızla yeniden başlıyorsun.`);
+  };
 }
 
 function openReport() {
@@ -626,7 +741,7 @@ document.querySelectorAll('#nav button').forEach(b => b.onclick = () => {
   if (!S || S.over) return;
   if (panel && panel.name === b.dataset.panel) return closeSheet();
   pickFrom = null; globe.setPreview(null);
-  ({ routes: openRoutes, fleet: openFleet, license: openLicense, report: openReport, rivals: openRivals })[b.dataset.panel]();
+  ({ routes: openRoutes, fleet: openFleet, license: () => openGrowth(), report: openReport, rivals: openRivals })[b.dataset.panel]();
   if (selRoute) { selRoute = null; syncGlobe(); }
 });
 
@@ -648,7 +763,7 @@ function updateHint(force) {
   } else if (S.day < 2) {
     key = 'speed'; html = 'Harika! Uçakların uçuyor. Gece yarısı gün kapanır ve kâr hesaplanır. Sağ üstten hızı <b>4×</b> yapabilirsin.';
   } else if (S.tier < 4 && S.totalPax >= TIERS[S.tier].pax && S.cash >= TIERS[S.tier].fee) {
-    key = 'lic' + S.tier; html = `<b>${TIERS[S.tier].name}</b> lisansını alabilirsin! <b>Lisans</b> menüsüne bak.`;
+    key = 'lic' + S.tier; html = `<b>${TIERS[S.tier].name}</b> lisansını alabilirsin! <b>Gelişim → Lisans</b>'a bak.`;
   }
   if (key === hintKey && !force) return;
   hintKey = key;
@@ -684,17 +799,60 @@ function toast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2600);
 }
 
+// ---------- Görevler ve çevrimdışı kazanç ----------
+function checkGoals() {
+  if (!S) return;
+  const ready = P.newlyReady(S);
+  if (ready.length) toast(`Görev tamamlandı: ${ready[0].text}. Ödülünü Gelişim menüsünden al.`);
+  updateGrowthDot();
+}
+function updateGrowthDot() {
+  const b = document.querySelector('#nav [data-panel=license]');
+  if (b) b.classList.toggle('has-dot', !!(S && P.goalState(S).claimable));
+}
+
+function showOffline(ms) {
+  if (!S || S.over) return;
+  const o = P.offlineEarnings(S, ms);
+  if (!o) return;
+  const h = Math.floor(o.minutes / 60), m = Math.round(o.minutes % 60);
+  $('offTime').textContent = h ? `${h} saat ${m} dakika` : `${m} dakika`;
+  $('offMoney').textContent = o.noProfit ? '$0' : '+' + money(o.money);
+  $('offPax').textContent = num(o.pax);
+  $('offNote').textContent = o.noProfit
+    ? 'Son günlerde kâr etmediğin için çevrimdışı kazanç yok.'
+    : `Son 7 günün ortalamasına göre, %${Math.round(o.eff * 100)} verimle hesaplandı.${o.capped ? ` En fazla ${o.capH} saatlik kazanç alınabilir (Gece vardiyası müdürü yükseltmesiyle artar).` : ''}`;
+  $('btnOffline').onclick = () => {
+    S.cash += o.money; S.totalPax += o.pax;
+    $('offline').classList.remove('show');
+    save(); updateHUD(); checkGoals();
+    if (o.money > 0) toast(`Çevrimdışı kazanç: +${money(o.money)}`);
+  };
+  $('offline').classList.add('show');
+}
+
+// Telefonda arka plana alınınca ya da sekme gizlenince
+let hiddenAt = 0;
+document.addEventListener('visibilitychange', () => {
+  if (!S) return;
+  if (document.hidden) { hiddenAt = Date.now(); save(); }
+  else if (hiddenAt) { const ms = Date.now() - hiddenAt; hiddenAt = 0; showOffline(ms); }
+});
+window.addEventListener('pagehide', () => save());
+
 // ---------- Gün sonu ----------
 function endOfDay() {
   const rec = sim.settleDay(S);
   const news = spawnRivals(S);
   if (S.day % 7 === 0) news.push(...weeklyRivals(S));
   news.push(...dailyEvents(S));
+  news.push(...P.runManagers(S, (a, b, ids) => addRoute(a, b, ids)));
   pushNews(news);
   syncGlobe();
   save();
   if (panel && ['report', 'routes', 'license', 'fleet', 'rivals', 'news', 'route'].includes(panel.name)) refreshSheet();
   if (S.pendingDecision && !$('decision').classList.contains('show')) showDecision();
+  checkGoals();
   const imp = news.filter(n => n.important);
   if (imp.length) toast(imp[0].text + (imp.length > 1 ? ` (+${imp.length - 1} haber daha, Haberler'e bak)` : ''));
   else if (S.day % 7 === 0) toast(`Hafta özeti: dünkü kâr ${money(rec.profit)} · ${num(rec.pax)} yolcu`);
@@ -708,11 +866,11 @@ function gameOver() {
 }
 
 // ---------- Döngü ----------
-let lastNow = performance.now(), hudAcc = 1;
+let lastNow = performance.now(), hudAcc = 1, goalAcc = 0;
 function frame(now) {
   const dt = Math.min(0.1, (now - lastNow) / 1000);
   lastNow = now;
-  if (S && !S.over && speed > 0 && !$('decision').classList.contains('show')) {
+  if (S && !S.over && speed > 0 && !$('decision').classList.contains('show') && !$('offline').classList.contains('show')) {
     const before = Math.floor((S.t + DAY_OFFSET) / 24);
     S.t += dt * speed;
     const after = Math.floor((S.t + DAY_OFFSET) / 24);
@@ -723,6 +881,7 @@ function frame(now) {
   traffic.tick(dt);
   hudAcc += dt;
   if (hudAcc > 0.25) { hudAcc = 0; updateHUD(); updateMarkers(); }
+  goalAcc += dt; if (goalAcc > 2) { goalAcc = 0; checkGoals(); }
   requestAnimationFrame(frame);
 }
 
@@ -730,6 +889,11 @@ function frame(now) {
 function startGame(state) {
   S = state;
   S.rivals = S.rivals || []; S.news = S.news || []; S.events = S.events || [];
+  S.upgrades = S.upgrades || {}; S.managers = S.managers || {}; S.goalsDone = S.goalsDone || []; S.goalsNotified = S.goalsNotified || [];
+  S.firstBase = S.firstBase || S.bases[0];
+  const away = S.lastSeen ? Date.now() - S.lastSeen : 0;
+  if (away > 0) setTimeout(() => showOffline(away), 700);
+  updateGrowthDot();
   if (S.newsSeen == null) S.newsSeen = S.news.length;
   spawnRivals(S);
   updateNewsBadge();
@@ -772,4 +936,4 @@ setupStart();
 requestAnimationFrame(frame);
 
 // Test için: ?debug ile açınca konsoldan erişilebilir.
-if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents };
+if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute };

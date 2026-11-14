@@ -6,7 +6,7 @@
 <meta name="theme-color" content="#04070d">
 <title>SkyWeave</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css">
-<link rel="stylesheet" href="css/style.css?v=9">
+<link rel="stylesheet" href="css/style.css?v=10">
 </head>
 <body>
 <div id="globe"></div>
@@ -34,7 +34,7 @@
 <nav id="nav">
   <button data-panel="routes"><span class="ic">⟿</span>Rotalar</button>
   <button data-panel="fleet"><span class="ic">✈</span>Filo</button>
-  <button data-panel="license"><span class="ic">★</span>Lisans</button>
+  <button data-panel="license"><span class="ic">★</span>Gelişim</button>
   <button data-panel="rivals"><span class="ic">⚑</span>Rakipler</button>
   <button data-panel="report"><span class="ic">▤</span>Rapor</button>
 </nav>
@@ -68,6 +68,20 @@
   </div>
 </div>
 
+<div id="offline" class="overlay">
+  <div class="card">
+    <div class="tag">Hoş geldin</div>
+    <h2>Sen yokken</h2>
+    <p class="sub"><span id="offTime"></span> boyunca uçakların uçmaya devam etti.</p>
+    <div class="grid2">
+      <div class="kv"><div class="k">Kazanç</div><div class="v pos" id="offMoney"></div></div>
+      <div class="kv"><div class="k">Taşınan yolcu</div><div class="v" id="offPax"></div></div>
+    </div>
+    <p class="meta" id="offNote" style="margin-top:10px"></p>
+    <button id="btnOffline" class="primary big">Topla</button>
+  </div>
+</div>
+
 <div id="gameover" class="overlay">
   <div class="card">
     <h2>İflas ettin</h2>
@@ -77,6 +91,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
-<script type="module" src="js/main.js?v=9"></script>
+<script type="module" src="js/main.js?v=10"></script>
 </body>
 </html>

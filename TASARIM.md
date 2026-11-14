@@ -1,4 +1,4 @@
-# SkyWeave — Tasarım Belgesi (v0.5)
+# SkyWeave — Tasarım Belgesi (v0.7)
 
 > Türkiye'de küçük bir bölgesel havayolu olarak başla, dünyanın dört bir yanına uçan bir dev ol.
 
@@ -83,6 +83,13 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **Kararlar (oyun durur, oyuncu seçer):** Sendika zammı (kalıcı ekip maliyeti +%8 ya da grev riski), reklam kampanyası (itibar +%12, 30 gün), ucuz bakım (genel gider −%20 ama daha sık teknik inceleme), yakıt fiyat sabitleme (60 gün). Aynı karar 150 gün içinde tekrar sorulmaz.
 - **Görünüm:** Üst çubukta "Haberler" düğmesi (okunmamış sayısı), haber panelinde süren olaylar ve kalan günleri, haritada etkilenen havalimanında renkli işaret, hat ekranında o hattı etkileyen olaylar.
 
+### İlerleme (Gelişim menüsü)
+- **Çevrimdışı kazanç:** Oyun kapalıyken ya da telefonda arka plandayken oyun saati durur. Dönüşte son 7 günün ortalama kârı ve yolcusu üzerinden hesaplanır: her gerçek dakika = 0,25 oyun günü, verim %50 (yükseltmeyle %100'e çıkar), en fazla 8 saat (yükseltmeyle 18 saate çıkar).
+- **Yükseltmeler (kalıcı, seviyeli, fiyat ×2,3):** Yakıt verimliliği (−%4/sv), Hızlı yer hizmeti (yerde bekleme −%8/sv), Ekip eğitimi (−%4/sv), Bakım hangarı (kira ve bakım −%6/sv), VIP salon (itibar +%3/sv), Açılış kampanyaları (yeni hat daha hızlı dolar), Gece vardiyası müdürü (çevrimdışı kazanç), Sadakat programı (talep +%3/sv, Ulusal lisans).
+- **Görevler:** 25 ödüllü görev, aynı anda 3 aktif. Tamamlanınca bildirim ve menüde kırmızı nokta çıkar, ödül elle alınır.
+- **Otomasyon (müdürler):** Gelir müdürü (haftalık fiyat ayarı), Filo müdürü (boştaki uçağı talebi yüksek hatta atar), Ağ planlayıcı (boşta uçak kalırsa yeni hat açar, Ulusal lisans). İşe alma ücreti ve günlük maaş var, açılıp kapatılabilir.
+- **Holding (prestij):** Kıtasal lisans ve en az 25 M$ şirket değeriyle açılır. Yıldız = ⌊√(şirket değeri / 25 M$)⌋. Her yıldız kalıcı olarak gelir +%5 ve başlangıç kasası +1 M$ verir. Her şey sıfırlanır; yıldızlar ve havayolu adı kalır.
+
 ### İflas
 - Kasa eksiye düşebilir (günlük faiz işler). −10 M$'ın altına inerse iflas edersin ve oyun biter.
 
@@ -93,7 +100,8 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **v0.2 (tamam):** 3B küre ve zoom, tüm havaalanları, talep ekonomisi, gerçek uçaklar, lisanslar, üsler, gün-gece, sezonlar, kayıt.
 - **v0.3 (şimdi):** Harita MapLibre küre görünümüne geçti. Yakınlaştıkça gerçek harita ve havalimanında OpenStreetMap verisiyle gerçek pistler, taksi yolları, apronlar ve 3B binalar (terminal, kule, hangar). Yakınlaşınca kamera otomatik eğilir. Gece bölgesi harita üzerinde gölge olarak görünür. Ayrı yakın plan ekranı kaldırıldı (kodu `arsiv/v0.3` içinde).
 - **v0.3.1 (tamam):** Havalimanına yakınlaşınca 3B uçaklar: OpenStreetMap'teki gerçek kapılara park eder (kapı yoksa apron üzerine), gerçek pistlere iner ve kalkar, taksi yollarından geçer, geri itilir (pushback). Senin uçakların sarı kuyruklu, sayıları o havalimanındaki sefer payına göre.
-- **v0.6 (şimdi):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
+- **v0.6 (tamam):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
+- **v0.7 (şimdi):** İdle çekirdeği: çevrimdışı kazanç, yükseltmeler, görevler, otomasyon (müdürler), Holding (prestij). Bkz. "İlerleme" bölümü.
 - **v0.5 (tamam):** Rakip havayolları. Bkz. "Rakipler" bölümü.
 - **v0.6:** Daha fazla havaalanı (OurAirports verisi), itibar ve hizmet kalitesi, ses.
 - **Sonra:** İnternete yayın, isteğe bağlı yapay zekâ ile haber metinleri (Haiku).
@@ -111,6 +119,7 @@ js/globe.js        MapLibre küre/harita, havalimanı katmanları, 3B binalar, r
 js/traffic3d.js    havalimanında 3B uçaklar: kapılarda park, iniş, taksi, kalkış
 js/rivals.js       rakip havayolları ve haftalık yapay zekâ kararları
 js/events.js       olaylar, haberler ve oyuncu kararları
+js/progress.js     yükseltmeler, görevler, müdürler, çevrimdışı kazanç, holding
 js/main.js         oyun döngüsü, arayüz, kayıt
 arsiv/v0.1         ilk prototip
 ```

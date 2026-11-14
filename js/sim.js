@@ -67,7 +67,18 @@ export function fuelMul(S, player = false) {
   return activeEvents(S).reduce((m, e) => m * (e.fuel ?? 1), 1);
 }
 export const grounded = S => new Set(activeEvents(S).filter(e => e.grounded).map(e => e.grounded));
-export const playerRep = S => (S ? (S.rep || 1) : 1) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1);
+// ---------- Yükseltme ve prestij etkileri ----------
+export const lvl = (S, id) => (S && S.upgrades && S.upgrades[id]) || 0;
+export const stars = S => (S && S.legacy && S.legacy.stars) || 0;
+// Yükseltmelerle değişmiş uçak (yer süresi kısalır)
+const effAc = (S, ac) => lvl(S, 'turn') ? { ...ac, turn: ac.turn * (1 - 0.08 * lvl(S, 'turn')) } : ac;
+// Yeni hat talep artışı (açılış kampanyaları ile hızlanır)
+export function rampP(S, age) {
+  const L = lvl(S, 'launch'), start = 0.4 + 0.1 * L, days = RAMP_DAYS * (1 - 0.15 * L);
+  return Math.min(1, start + (1 - start) * (age || 0) / days);
+}
+export const playerFixed = (S, f) => fixedPerDay(f) * (1 - 0.06 * lvl(S, 'maint'));
+export const playerRep = S => (S ? (S.rep || 1) : 1) * (1 + 0.03 * lvl(S, 'lounge')) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1);
 export const playerStrike = S => activeEvents(S).some(e => e.strike);
 // Bir hattın kapasite çarpanı (iki ucun en kötüsü)
 export const pairCap = (S, aC, bC) => S ? Math.min(evFactors(S, aC).cap, evFactors(S, bC).cap) : 1;
@@ -117,7 +128,7 @@ export function allocate(D0, carriers) {
 // Oyuncunun uçabilen günlük gidiş-dönüş sayısı (hava, grev, teknik inceleme düşülür)
 function playerRt(S, route, f, d) {
   if (S && (playerStrike(S) || grounded(S).has(f.type))) return 0;
-  return rtPerDay(d, AC[f.type]) * pairCap(S, route.a, route.b);
+  return rtPerDay(d, effAc(S, AC[f.type])) * pairCap(S, route.a, route.b);
 }
 function playerSeats(S, route, fleet, d) {
   let seats = 0;
@@ -131,7 +142,7 @@ export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.f
   const D0 = demandPerDir(a, b, doy, 1) * (S ? evFactors(S, aC).dem * evFactors(S, bC).dem : 1);
   const entries = [];
   const pr = playerRoute || (S ? S.routes.find(r => pairKey(r.a, r.b) === pairKey(aC, bC)) : null);
-  if (pr) entries.push({ kind: 'player', route: pr, seats: playerSeats(S, pr, fleet, d), fareMul: pr.fareMul, rep: playerRep(S), ramp: mature ? 1 : rampOf(pr.age) });
+  if (pr) entries.push({ kind: 'player', route: pr, seats: playerSeats(S, pr, fleet, d), fareMul: pr.fareMul, rep: playerRep(S), ramp: (mature ? 1 : rampP(S, pr.age)) * (1 + 0.03 * lvl(S, 'mkt')) });
   for (const { rv, rr } of rivalsOnPair(S, aC, bC)) {
     entries.push({ kind: 'rival', rv, route: rr, seats: rivalRouteSeats(rr, S), fareMul: rr.fareMul, rep: rv.rep, ramp: rampOf(rr.age) });
   }
@@ -148,11 +159,13 @@ export function routeEcon(route, fleet, doy, mature = false, S = null) {
   for (const id of route.planes) {
     const p = fleet.find(f => f.id === id); if (!p) continue;
     const ac = AC[p.type], rt = playerRt(S, route, p, d);
-    legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fuelMul(S, true), S ? S.wageMul || 1 : 1); fixed += fixedPerDay(p);
+    const fm = fuelMul(S, true) * (1 - 0.04 * lvl(S, 'fuel'));
+    const wm = (S ? S.wageMul || 1 : 1) * (1 - 0.04 * lvl(S, 'crew'));
+    legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fm, wm); fixed += playerFixed(S, p);
   }
   const fare = baseFare(d) * route.fareMul;
   const pax = me.pax, seats = me.seats;
-  const revenue = 2 * pax * fare;
+  const revenue = 2 * pax * fare * (1 + 0.05 * stars(S));
   const cost = opCost + 2 * pax * PAX_FEE;
   return {
     d, seats, pax, legs, fare, revenue, cost, fixed,
@@ -176,7 +189,8 @@ export function rivalRouteEcon(S, rv, rr, doy) {
   return { pax: e.pax, seats: e.seats, load: e.seats ? e.pax / e.seats : 0, revenue, cost, profit: revenue - cost, share: m.total ? e.pax / m.total : 1 };
 }
 
-export const overheadPerDay = S => (3000 + 1500 * S.bases.length + 300 * S.fleet.length) * (S.overheadMul || 1);
+export const managerSalaries = S => Object.values(S.managers || {}).reduce((s, m) => s + (m.on ? m.salary : 0), 0);
+export const overheadPerDay = S => (3000 + 1500 * S.bases.length + 300 * S.fleet.length) * (S.overheadMul || 1) + managerSalaries(S);
 
 // Gün sonu hesabı. State'i günceller, özet döner.
 export function settleDay(S) {
@@ -203,7 +217,7 @@ export function settleDay(S) {
     rv.routes.forEach(rr => { rr.age = (rr.age || 0) + 1; });
   }
   S.routes.forEach(r => { r.age = (r.age || 0) + 1; });
-  const fleetCost = S.fleet.reduce((s, f) => s + fixedPerDay(f), 0);
+  const fleetCost = S.fleet.reduce((s, f) => s + playerFixed(S, f), 0);
   const overhead = overheadPerDay(S);
   const interest = S.cash < 0 ? -S.cash * 0.0005 : 0;
   cost += fleetCost + overhead + interest;

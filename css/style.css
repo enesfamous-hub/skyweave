@@ -187,6 +187,19 @@ button.item { font-size: 14px; }
 #decOptions button span { display: block; font-size: 12px; color: var(--muted); margin-top: 3px; }
 #decOptions button:first-child { border-color: var(--accent); }
 
+/* Gelişim paneli */
+.tabs { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 6px 0 12px; }
+.tabs::-webkit-scrollbar { display: none; }
+.tabs button { flex: none; min-height: 36px; padding: 0 12px; font-size: 13px; border-radius: 18px; position: relative; }
+.tabs button.on { background: var(--accent); color: #17130a; border: none; font-weight: 700; }
+.dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--bad); }
+.lv { color: var(--accent); font-size: 11px; letter-spacing: 1px; margin-left: 4px; }
+button.sm.on { background: var(--good); color: #062; border: none; font-weight: 700; }
+#nav button { position: relative; }
+#nav button.has-dot::after { content: ""; position: absolute; top: 6px; right: 10px; width: 9px; height: 9px; border-radius: 50%; background: var(--bad); }
+#offline .tag { display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--accent); margin-bottom: 6px; }
+#offline .v { font-size: 22px; }
+
 /* Bildirim */
 #toast {
   position: fixed; z-index: 9; left: 50%; bottom: calc(86px + var(--safe-b));
