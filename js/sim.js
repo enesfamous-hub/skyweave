@@ -400,6 +400,7 @@ export function settleDay(S) {
     rp -= 2500 + 300 * fleetN;
     rv.cash += rp;
     rv.lastProfit = rp; rv.lastPax = Math.round(rpax);
+    rv.avgProfit = rv.avgProfit == null ? rp : rv.avgProfit * 0.95 + rp * 0.05;
     rv.routes.forEach(rr => { rr.age = (rr.age || 0) + 1; });
   }
   S.routes.forEach(r => { r.age = (r.age || 0) + 1; });

@@ -8,6 +8,7 @@ Türkiye'de küçük bir bölgesel havayolu kur, dünyaya açıl. Tarayıcıda �
 - Gerçek uçak modelleri, talep ekonomisi, lisanslarla büyüme (Bölgesel → Ulusal → Kıtasal → Uluslararası)
 - Rakip havayolları (satın alınabilir), olaylar ve haberler
 - Kargo, sözleşme teklifleri, rozetler
+- Senaryolar: hedefli, süreli başlangıçlar (1–3 yıldız); 174 havalimanı
 - Ses ve müzik, grafikler, kayıt taşıma; ana ekrana eklenip internetsiz oynanabilir (PWA)
 
 Tasarım ayrıntıları: [TASARIM.md](TASARIM.md)

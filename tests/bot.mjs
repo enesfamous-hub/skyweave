@@ -7,6 +7,7 @@ import * as D from '../js/depth.js';
 import * as X from '../js/extra.js';
 import { decide, decisionView } from '../js/events.js';
 import { newState, addRoute, advanceDay, nextReg } from '../js/game.js';
+import { applyScenario, SCENARIOS } from '../js/scenarios.js';
 
 const { AP, AC } = sim;
 
@@ -70,7 +71,10 @@ function botContracts(S) {
 }
 
 export function botDay(S, opt = {}) {
-  const reserve = opt.reserve ?? 1.5e6;
+  let reserve = opt.reserve ?? 1.5e6;
+  // Lisans için yolcu tamamsa parayı biriktir
+  const nx = TIERS[S.tier];
+  if (nx && S.totalPax >= nx.pax) reserve += nx.fee;
   // Görev ödülleri
   for (const g of P.goalState(S).active) if (g.ready) P.claimGoal(S, g.id);
   // Karar olayları: rastgele ama makul
@@ -166,9 +170,12 @@ export function botDay(S, opt = {}) {
 }
 
 // Tüm oyunu oynat. Her gün bir satır istatistik döner.
-export function runGame({ seed = 1, days = 720, base = 'IST', bot = true, onDay } = {}) {
+export function runGame({ seed = 1, days = 720, base = 'IST', bot = true, onDay, scenario } = {}) {
   seedRandom(seed);
+  const sc = scenario && SCENARIOS.find(x => x.id === scenario);
+  if (sc && sc.base) base = sc.base;
   const S = newState('Test Hava', base);
+  if (sc) applyScenario(S, scenario);
   S.firstBase = base;
   D.refreshUsed(S);
   const log = [];
@@ -179,6 +186,7 @@ export function runGame({ seed = 1, days = 720, base = 'IST', bot = true, onDay 
     const out = advanceDay(S);
     if (S.tier && tierDay[S.tier] == null) tierDay[S.tier] = S.day;
     log.push({ day: S.day, cash: S.cash, profit: out.rec.profit, pax: out.rec.pax, tier: S.tier, fleet: S.fleet.length, routes: S.routes.length, value: P.companyValue(S) });
+    if (out.scenario && !S.scenarioResult) S.scenarioResult = { ...out.scenario, day: S.day, sc: undefined };
     if (onDay) onDay(S, out);
     if (S.cash < sim.BANKRUPT) S.over = true;
   }

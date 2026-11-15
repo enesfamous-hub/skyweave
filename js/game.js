@@ -6,6 +6,7 @@ import { dailyEvents } from './events.js';
 import * as P from './progress.js';
 import * as D from './depth.js';
 import * as X from './extra.js';
+import { checkScenario } from './scenarios.js';
 
 export const ROUTE_COLORS = ['#ffd166', '#06d6a0', '#4cc9f0', '#ef476f', '#f8961e', '#c77dff', '#90be6d', '#ff99c8', '#a0c4ff', '#fdffb6', '#9bf6ff', '#ffadad'];
 // Gün sonu 00:00 TSİ'de (oyun t=0 → 09:00 TSİ)
@@ -90,5 +91,6 @@ export function advanceDay(S) {
   news.push(...X.dailyContracts(S));
   const recs = checkRecords(S, rec);
   const badges = X.checkBadges(S);
-  return { rec, news, recs, badges };
+  const scenario = checkScenario(S);
+  return { rec, news, recs, badges, scenario };
 }

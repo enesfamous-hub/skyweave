@@ -304,7 +304,12 @@ details.guide .s { margin-top: 6px; line-height: 1.5; font-size: 13px; }
 .filebtn input { display: none !important; }
 @media (prefers-reduced-motion: reduce) { .float-txt, .cel-ic, .card.cel, #coach.show { animation-duration: 0.01s; } }
 
-/* ---------- v1.0: rozetler ---------- */
+/* ---------- v1.0: rozetler, senaryo, renk körü modu ---------- */
+html.cb { --good: #4cc9f0; --bad: #f8961e; }
+.scen-box { border: 1px solid var(--accent); border-radius: 12px; padding: 12px; margin-bottom: 12px; background: var(--raise); }
+.scen-box .t { font-weight: 800; }
+.scen-box .progress { margin-top: 4px; }
+.stars { color: var(--accent); letter-spacing: 2px; }
 .badges { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 8px; }
 .badge { background: var(--raise); border: 1px solid var(--line); border-radius: 12px; padding: 10px 8px; text-align: center; opacity: 0.55; }
 .badge.on { opacity: 1; border-color: var(--accent); }

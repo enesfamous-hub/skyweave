@@ -14,7 +14,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="SkyWeave">
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.css">
-<link rel="stylesheet" href="css/style.css?v=13">
+<link rel="stylesheet" href="css/style.css?v=14">
 </head>
 <body>
 <div id="globe"></div>
@@ -92,6 +92,8 @@
     <p class="sub">Türkiye'de küçük bir bölgesel havayolu kur, dünyaya açıl.</p>
     <div id="continueBox"></div>
     <label>Havayolu adı<input id="nameInput" maxlength="24" value="Anadolu Kanatları"></label>
+    <label>Oyun türü<select id="scenInput"></select></label>
+    <p id="scenDesc" class="tiny" style="margin:-4px 0 10px"></p>
     <label>İlk üssün<select id="baseInput"></select></label>
     <button id="btnNew" class="primary big">Yeni oyun</button>
     <button id="btnImportStart" class="ghost big" style="margin-top:8px">Başka cihazdan kayıt yükle</button>
@@ -131,6 +133,6 @@
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@5.6.0/dist/maplibre-gl.js"></script>
-<script type="module" src="js/main.js?v=13"></script>
+<script type="module" src="js/main.js?v=14"></script>
 </body>
 </html>

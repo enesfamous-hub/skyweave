@@ -1,6 +1,6 @@
 // Ayarlar (cihaza özel) ve kayıt dışa/içe aktarma.
 const KEY = 'skyweave-settings';
-const DEFAULTS = { sfx: true, music: true, volume: 0.6, haptics: true, speed: 1, tips: true, tipsSeen: [] };
+const DEFAULTS = { sfx: true, music: true, volume: 0.6, haptics: true, speed: 1, tips: true, tipsSeen: [], cb: false, scen: {} };
 
 export const settings = (() => {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(KEY) || '{}') }; } catch (_) { return { ...DEFAULTS }; }

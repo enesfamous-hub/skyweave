@@ -163,7 +163,7 @@ export function dailyContracts(S) {
 export function rivalValue(S, rv) {
   // Uçaklar kiralık: değerleri kira sözleşmesi ve marka kadar. Kasanın bir kısmı ödenir, borç fiyatı düşürür.
   const planes = rv.routes.reduce((s, r) => s + r.n * AC[r.type].price * 1e6 * 0.05, 0);
-  return planes + Math.max(0, rv.lastProfit || 0) * 240 + 0.3 * Math.max(0, rv.cash) - Math.max(0, -rv.cash);
+  return planes + Math.max(0, rv.avgProfit ?? rv.lastProfit ?? 0) * 120 + 0.1 * Math.max(0, rv.cash) - Math.max(0, -rv.cash);
 }
 export function acquireCost(S, rv) {
   const v = rivalValue(S, rv);

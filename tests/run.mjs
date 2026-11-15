@@ -4,6 +4,8 @@ import { runGame, seedRandom } from './bot.mjs';
 import * as sim from '../js/sim.js';
 import * as X from '../js/extra.js';
 import { newState, addRoute, advanceDay } from '../js/game.js';
+import * as SC from '../js/scenarios.js';
+import { AIRPORTS } from '../js/data.js';
 
 let fail = 0, pass = 0;
 const ok = (cond, msg) => { if (cond) pass++; else { fail++; console.log('  ✗ ' + msg); } };
@@ -102,6 +104,33 @@ section('Sözleşmeler');
   for (let i = 0; i < 8; i++) { S.t = 9 + 24 * S.day; advanceDay(S); }
   ok(!S.contracts.length && !S.contractLog.at(-1).ok, 'karşılanmayan sözleşme 3 aksamada iptal');
   ok(isFinite(cash0) && isFinite(S.cash), 'kasa sayısal kalır');
+}
+
+section('Havalimanları');
+{
+  const codes = new Set(AIRPORTS.map(a => a.c));
+  ok(codes.size === AIRPORTS.length, 'IATA kodları benzersiz');
+  ok(AIRPORTS.every(a => Math.abs(a.lat) <= 90 && Math.abs(a.lon) <= 180 && a.p > 0 && a.t >= 0 && a.t <= 1 && ['TR', 'K', 'W'].includes(a.z)), 'koordinat, nüfus, turizm ve bölge geçerli');
+  ok(AIRPORTS.filter(a => a.z === 'TR').every(a => a.co === 'TR'), 'Türkiye bölgesindeki havalimanları TR');
+}
+
+section('Senaryolar');
+for (const sc of SC.SCENARIOS.filter(x => x.days)) {
+  const S = SC.applyScenario(newState('T', sc.base), sc.id);
+  ok(S.scenario && S.scenario.id === sc.id && S.bases[0] === sc.base, `${sc.id}: kurulum`);
+  ok(SC.scenarioProgress(S).every(p => !p.done), `${sc.id}: başta tamamlanmış hedef yok`);
+}
+{
+  const S = SC.applyScenario(newState('T', 'AYT'), 'tour');
+  S.totalPax = 3e6; S.day = 100;
+  const r = SC.checkScenario(S);
+  ok(r && r.won && r.stars === 3, 'yarı sürede bitirilen senaryo 3 yıldız');
+  ok(SC.checkScenario(S) === null, 'sonuç bir kez döner');
+  const S2 = SC.applyScenario(newState('T', 'AYT'), 'tour'); S2.day = 365;
+  const r2 = SC.checkScenario(S2);
+  ok(r2 && !r2.won && S2.scenario.lost, 'süre dolunca kaybedilir');
+  const S3 = SC.applyScenario(newState('T', 'ESB'), 'crisis');
+  ok(S3.cash === 6e6 && sim.fuelMul(S3) > 1.3, 'kriz senaryosu: az para, pahalı yakıt');
 }
 
 console.log(`\n${pass} geçti, ${fail} kaldı`);

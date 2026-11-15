@@ -54,7 +54,7 @@ function step() {
 }
 
 // ---------- Kutlama kartı ----------
-export function celebrate({ tag = 'Tebrikler', title, text = '', items = [], button = 'Devam' }) {
+export function celebrate({ tag = 'Tebrikler', title, text = '', items = [], button = 'Devam', party = true }) {
   const o = $('celebrate');
   o.querySelector('.tag').textContent = tag;
   o.querySelector('h2').textContent = title;
@@ -65,6 +65,7 @@ export function celebrate({ tag = 'Tebrikler', title, text = '', items = [], but
   return new Promise(res => {
     b.onclick = () => { o.classList.remove('show'); res(); };
     o.classList.add('show');
+    if (!party) return;
     confetti(180);
     setTimeout(() => confetti(90, { x: innerWidth * 0.2, y: innerHeight * 0.5 }), 350);
     setTimeout(() => confetti(90, { x: innerWidth * 0.8, y: innerHeight * 0.5 }), 650);

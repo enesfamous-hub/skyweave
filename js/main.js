@@ -1,6 +1,6 @@
 // Oyun döngüsü, arayüz ve kayıt.
 import { Globe } from './globe.js';
-import { AirportTraffic } from './traffic3d.js?v=13';
+import { AirportTraffic } from './traffic3d.js?v=14';
 import { AIRPORTS, AIRCRAFT, TIERS, ZONES } from './data.js';
 import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
@@ -14,8 +14,9 @@ import { lineChart, barChart, bindCharts } from './charts.js';
 import { nextTip, GUIDE, TIPS } from './tutorial.js';
 import * as G from './game.js';
 import * as X from './extra.js';
+import * as SC from './scenarios.js';
 
-const VERSION = '1.0';
+const VERSION = '1.1';
 
 const { AP, AC } = sim;
 const SAVE_KEY = 'skyweave-save-v2';
@@ -786,7 +787,7 @@ function openGrowth(tab) {
 
 function renderGoals(body) {
   const gs = P.goalState(S);
-  body.innerHTML = `<div class="meta">Tamamlanan görevler: <b>${gs.doneCount} / ${gs.total}</b></div>
+  body.innerHTML = `${scenarioBox()}<div class="meta">Tamamlanan görevler: <b>${gs.doneCount} / ${gs.total}</b></div>
     <div class="progress" style="margin-bottom:12px"><div style="width:${gs.doneCount / gs.total * 100}%"></div></div>
     <div class="list" id="goalList"></div>`;
   const list = body.querySelector('#goalList');
@@ -1236,7 +1237,8 @@ window.addEventListener('pagehide', () => save());
 
 // ---------- Gün sonu ----------
 function endOfDay() {
-  const { rec, news, recs, badges } = G.advanceDay(S);
+  const { rec, news, recs, badges, scenario } = G.advanceDay(S);
+  if (scenario) setTimeout(() => showScenarioResult(scenario), 400);
   pushNews(news);
   syncGlobe();
   save();
@@ -1318,10 +1320,21 @@ function startGame(state) {
 }
 
 function setupStart() {
+  const ss = $('scenInput');
+  const best = id => { const b = settings.scen && settings.scen[id]; return b ? ' ' + '★'.repeat(b.stars) + '☆'.repeat(3 - b.stars) : ''; };
+  ss.innerHTML = SC.SCENARIOS.map(x => `<option value="${x.id}">${x.icon} ${x.name}${x.level ? ` (${x.level})` : ''}${best(x.id)}</option>`).join('');
+  ss.onchange = () => {
+    const sc = SC.SCENARIOS.find(x => x.id === ss.value);
+    const b = settings.scen && settings.scen[sc.id];
+    $('scenDesc').textContent = sc.desc + (sc.days ? ` Süre: ${sc.days} gün. Sürenin yarısında bitirirsen ★★★, dörtte üçünde ★★.` : '') + (b ? ` En iyi sonucun: ${b.day}. gün.` : '');
+    $('baseInput').disabled = !!sc.base;
+    if (sc.base) $('baseInput').value = sc.base;
+  };
   const sel = $('baseInput');
   sel.innerHTML = AIRPORTS.filter(a => a.z === 'TR').sort((x, y) => y.p - x.p)
     .map(a => `<option value="${a.c}">${a.n} (${a.c})</option>`).join('');
   sel.value = 'IST';
+  ss.value = 'free'; ss.onchange();
   const saved = loadSave();
   const box = $('continueBox');
   box.innerHTML = '';
@@ -1337,10 +1350,45 @@ function setupStart() {
 $('btnNew').onclick = () => {
   if (loadSave() && !confirm('Kayıtlı oyunun silinecek. Yeni oyun başlasın mı?')) return;
   const name = $('nameInput').value.trim() || 'Anadolu Kanatları';
-  startGame(newState(name, $('baseInput').value));
+  const scId = $('scenInput').value, sc = SC.SCENARIOS.find(x => x.id === scId);
+  const st = SC.applyScenario(newState(name, sc && sc.base ? sc.base : $('baseInput').value), scId);
+  startGame(st);
+  if (st.scenario) setTimeout(() => toast(`${sc.icon} ${sc.name}: ${sc.desc}`), 1200);
   save();
 };
 $('btnRestart').onclick = () => { $('gameover').classList.remove('show'); S = null; syncGlobe(); setupStart(); $('start').classList.add('show'); };
+
+// ---------- Senaryo ----------
+function scenarioBox() {
+  const sc = SC.scenarioOf(S);
+  if (!sc) return '';
+  const st = S.scenario, parts = SC.scenarioProgress(S);
+  const left = Math.max(0, sc.days - S.day);
+  const fmtV = (p, v) => p.fmt ? p.fmt(v) : p.money ? money(v) : num(v);
+  const head = st.won != null ? `<span class="pos">Tamamlandı: ${st.won}. gün</span> <span class="stars">${'★'.repeat(st.stars)}${'☆'.repeat(3 - st.stars)}</span>`
+    : st.lost ? '<span class="neg">Süre doldu. Serbest oyun olarak devam ediyorsun.</span>'
+    : `${left} gün kaldı · ★★★ için ${Math.max(0, Math.floor(sc.days * 0.5) - S.day)} gün`;
+  return `<div class="scen-box"><div class="t">${sc.icon} ${sc.name}</div><div class="s">${head}</div>
+    ${parts.map(p => `<div class="s" style="margin-top:8px">${p.label}: <b>${fmtV(p, p.cur)}</b> / ${fmtV(p, p.target)} ${p.done ? '✓' : ''}</div>
+      <div class="progress"><div style="width:${Math.min(100, p.cur / p.target * 100)}%"></div></div>`).join('')}</div>`;
+}
+function showScenarioResult(r) {
+  if (r.won) {
+    settings.scen = settings.scen || {};
+    const old = settings.scen[r.sc.id];
+    if (!old || r.stars > old.stars || (r.stars === old.stars && S.day < old.day)) { settings.scen[r.sc.id] = { stars: r.stars, day: S.day }; saveSettings(); }
+    fx('fanfare'); hideSheet();
+    celebrate({ tag: 'Senaryo tamamlandı', title: `${r.sc.icon} ${r.sc.name}`, text: `${S.day}. günde bitirdin. ${'★'.repeat(r.stars)}${'☆'.repeat(3 - r.stars)}`,
+      items: [r.stars < 3 ? `★★★ için ${Math.floor(r.sc.days * 0.5)}. günden önce bitirmen gerekirdi.` : 'En yüksek puan!', 'İstersen serbest oyun olarak devam edebilirsin.'], button: 'Devam et' });
+  } else {
+    fx('bad'); hideSheet();
+    celebrate({ tag: 'Süre doldu', title: `${r.sc.icon} ${r.sc.name}`, text: 'Hedefe yetişemedin.', party: false,
+      items: SC.scenarioProgress(S).map(p => `${p.label}: ${p.fmt ? p.fmt(p.cur) : p.money ? money(p.cur) : num(p.cur)} / ${p.fmt ? p.fmt(p.target) : p.money ? money(p.target) : num(p.target)}`).concat(['Serbest oyun olarak devam edebilir ya da Ayarlar → Oyunu sıfırla ile yeniden deneyebilirsin.']), button: 'Devam et' });
+  }
+  save();
+}
+const applyCb = () => document.documentElement.classList.toggle('cb', !!settings.cb);
+applyCb();
 
 // ---------- Ayarlar ----------
 function openSettings() {
@@ -1361,6 +1409,7 @@ function openSettings() {
         <div class="item"><div class="grow"><div class="t">Açılış hızı</div><div class="s">Oyun açıldığında bu hızla başlar. Klavyede boşluk duraklatır, 1–3 hızı seçer.</div></div>
           <div class="tabs" id="setSpeed" style="margin:0">${[1, 4, 16].map(v => `<button data-v="${v}" class="${settings.speed === v ? 'on' : ''}">${v}×</button>`).join('')}</div></div>
         ${tog('tips', 'İpuçları', 'Oyun ilerledikçe yeni sistemleri anlatan kartlar')}
+        ${tog('cb', 'Renk körü dostu renkler', 'Kâr ve zarar yeşil/kırmızı yerine mavi/turuncu görünür')}
         <div class="item"><div class="grow"><div class="t">Dil</div><div class="s">Şimdilik yalnızca Türkçe.</div></div><b>Türkçe</b></div>
       </div>
       <div class="row"><button id="setGuide">Nasıl oynanır</button><button id="setTipsReset">İpuçlarını baştan göster</button></div>
@@ -1376,6 +1425,7 @@ function openSettings() {
       if (i.dataset.k === 'sfx' && i.checked) play('coin');
       if (i.dataset.k === 'haptics' && i.checked) fx('buy');
       if (i.dataset.k === 'tips' && !i.checked) hideTip();
+      if (i.dataset.k === 'cb') applyCb();
     });
     const vol = body.querySelector('#setVol');
     vol.oninput = () => { settings.volume = vol.value / 100; body.querySelector('#volLbl').textContent = pct(settings.volume); applyVolume(); };
@@ -1498,6 +1548,10 @@ function sanitizeImported(st) {
   st.badges = bd;
   st.acquired = (st.acquired || []).filter(x => ID.test(x));
   numF(st, 'totalCargo', 'contractsDone', 'loansRepaid');
+  if (st.scenario) {
+    if (!SC.SCENARIOS.some(x => x.id === st.scenario.id && x.days)) delete st.scenario;
+    else st.scenario = { id: st.scenario.id, days: Number(st.scenario.days) || 0, won: st.scenario.won == null ? null : Number(st.scenario.won) || 0, lost: !!st.scenario.lost, stars: Math.max(0, Math.min(3, Number(st.scenario.stars) || 0)) };
+  }
   for (const n of st.news || []) n.color = color(n.color);
   for (const e of st.events || []) if (e.airports) e.airports = e.airports.filter(isAp);
   st.bases = st.bases.filter(isAp);
