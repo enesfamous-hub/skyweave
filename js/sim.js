@@ -9,7 +9,8 @@ export const FUEL_PRICE = 0.8;      // $/kg
 export const PAX_FEE = 6;           // yolcu başına havalimanı ücreti $
 export const LEASE_RATE = 0.00013;  // günlük kira = fiyat × oran + 2500 $
 export const OWN_RATE = 0.00006;    // sahip olunan uçak günlük bakım/sigorta
-export const BASE_COST = 1.5e6;     // yeni üs
+export const BASE_COST = 1.5e6;     // ikinci üs; sonrakiler pahalılaşır
+export const baseCost = S => Math.round(BASE_COST * Math.pow(1.8, Math.max(0, S.bases.length - 1)) / 1e5) * 1e5;
 export const MIN_ROUTE_KM = 150;
 export const RAMP_DAYS = 30;        // yeni rotanın tam talebe ulaşma süresi
 export const BANKRUPT = -10e6;
@@ -35,7 +36,8 @@ export function seasonFactor(ap, doy) {
   return 1 + 0.08 * summer + ap.t * 0.6 * Math.max(0, summer) - ap.t * 0.3 * Math.max(0, -summer);
 }
 
-export const baseFare = d => Math.round(35 + 0.075 * d);
+// Uzun hatlarda km başı ücret azalır (2.000 km'den sonra 0,05 $/km)
+export const baseFare = d => Math.round(35 + 0.075 * Math.min(d, 2000) + 0.05 * Math.max(0, d - 2000));
 
 // Yön başına günlük talep (yolcu).
 export function demandPerDir(a, b, doy, fareMul = 1) {
@@ -166,6 +168,19 @@ export function slotFactor(S, code) {
 // Bir uçağın bir hatta ihtiyaç duyduğu günlük kalkış
 export const planeDeps = (S, d, type) => rtPerDay(d, effAc(S, AC[type]));
 
+// ---------- Kargo (yolcu uçaklarının altında) ----------
+// Yön başına günlük kargo talebi (ton). Uluslararası hatlarda daha yüksek.
+export function cargoDemand(a, b, d) {
+  const intl = a.co === b.co ? 1 : 1.3;
+  return 0.8 * Math.sqrt(a.p * b.p) * Math.min(1, d / 500) * intl;
+}
+export const cargoRate = d => 200 + 0.35 * Math.min(d, 2000) + 0.12 * Math.max(0, d - 2000);   // $/ton
+export const CARGO_HANDLING = 60;               // $/ton
+
+// Sözleşmelerin etkisi: tanıtım kampanyası o şehrin talebini artırır, kargo anlaşması ek yük getirir
+export const promoMul = (S, code) => S && S.contracts && S.contracts.some(c => c.kind === 'pax' && c.ap === code) ? 1.25 : 1;
+export const contractCargo = (S, aC, bC) => S && S.contracts ? S.contracts.filter(c => c.kind === 'cargo' && pairKey(c.a, c.b) === pairKey(aC, bC)).reduce((s, c) => s + c.extra, 0) : 0;
+
 // ---------- Pazar ve rekabet ----------
 export const pairKey = (a, b) => a < b ? a + '-' + b : b + '-' + a;
 export const rampOf = age => Math.min(1, 0.4 + 0.6 * (age || 0) / RAMP_DAYS);
@@ -223,7 +238,7 @@ export const bizSeats = (route, seats) => seats * cabinOf(route).frac / BIZ_SPAC
 // Bir hattaki tüm havayolları ve paylaştırılmış yolcuları.
 export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.fleet : [], mature = false } = {}) {
   const a = AP[aC], b = AP[bC], d = distKm(a, b);
-  const D0 = demandPerDir(a, b, doy, 1) * (S ? evFactors(S, aC).dem * evFactors(S, bC).dem : 1);
+  const D0 = demandPerDir(a, b, doy, 1) * (S ? evFactors(S, aC).dem * evFactors(S, bC).dem * promoMul(S, aC) * promoMul(S, bC) : 1);
   const entries = [];
   const pr = playerRoute || (S ? S.routes.find(r => pairKey(r.a, r.b) === pairKey(aC, bC)) : null);
   const phys = pr ? playerSeats(S, pr, fleet, d) : 0;
@@ -240,10 +255,11 @@ export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.f
 export function routeEcon(route, fleet, doy, mature = false, S = null) {
   const m = pairMarket(S, route.a, route.b, doy, { playerRoute: route, fleet, mature });
   const me = m.entries[0], d = m.d;
-  let legs = 0, opCost = 0, fixed = 0;
+  let legs = 0, opCost = 0, fixed = 0, cargoCap = 0;
   for (const id of route.planes) {
     const p = fleet.find(f => f.id === id); if (!p) continue;
     const ac = AC[p.type], rt = playerRt(S, route, p, d);
+    cargoCap += 2 * rt * (ac.cargo || 0);
     const fm = fuelMul(S, true) * (1 - 0.04 * lvl(S, 'fuel')) * planeFuelMul(p);
     const wm = (S ? S.wageMul || 1 : 1) * (1 - 0.04 * lvl(S, 'crew'));
     legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fm, wm); fixed += playerFixed(S, p);
@@ -259,14 +275,20 @@ export function routeEcon(route, fleet, doy, mature = false, S = null) {
     const pot = m.D0 * bizShare(AP[route.a], AP[route.b], d) * svc.biz * (1 + 0.04 * lvl(S, 'lounge')) * me.ramp * Math.pow(route.fareMul, -0.8);
     bPax = Math.min(bSeats, pot * (m.entries.length > 1 ? 0.55 + 0.45 * (m.total ? pax / m.total : 1) : 1));
   }
+  // Kargo: kapasite uçakların bölmesi, pay yolcu payı kadar
+  const cShare = m.entries.length > 1 && m.total ? 0.3 + 0.7 * pax / m.total : 1;
+  const cDem = cargoDemand(AP[route.a], AP[route.b], d) * (S ? evFactors(S, route.a).dem * evFactors(S, route.b).dem : 1) * (1 + 0.2 * lvl(S, 'cargo')) * me.ramp;
+  const cargo = Math.min(cargoCap / 2, cDem * cShare + contractCargo(S, route.a, route.b) / 2);   // yön başına ton
   const bonus = 1 + 0.05 * stars(S);
-  const revenue = 2 * (pax * fare + bPax * bFare) * bonus;
-  const cost = opCost + 2 * (pax + bPax) * (PAX_FEE + svc.cost) + 2 * bPax * 15;
+  const cargoRev = 2 * cargo * cargoRate(d) * bonus;
+  const revenue = 2 * (pax * fare + bPax * bFare) * bonus + cargoRev;
+  const cost = opCost + 2 * (pax + bPax) * (PAX_FEE + svc.cost) + 2 * bPax * 15 + 2 * cargo * CARGO_HANDLING;
   const allSeats = seats + bSeats;
   const inS = S && S.routes.includes(route);
   return {
     d, seats, pax, legs, fare, revenue, cost, fixed,
     bSeats, bPax, bFare, phys: me.phys,
+    cargo: 2 * cargo, cargoCap, cargoDem: 2 * cDem * cShare, cargoRev,
     demand: m.D0 * Math.pow(route.fareMul, -1.4) * me.ramp,   // pazarın toplam talebi (bizim fiyatla)
     share: m.total ? pax / m.total : 1,
     comps: m.entries.slice(1),
@@ -328,17 +350,20 @@ export function rivalRouteEcon(S, rv, rr, doy) {
 }
 
 export const managerSalaries = S => Object.values(S.managers || {}).reduce((s, m) => s + (m.on ? m.salary : 0), 0);
-export const overheadPerDay = S => (3000 + 1500 * S.bases.length + 300 * S.fleet.length) * (S.overheadMul || 1) + managerSalaries(S);
+// Genel gider: merkez, üsler ve filo. Büyük filoyu yönetmek uçak başına daha pahalıdır (organizasyon karmaşıklığı).
+export const orgPerPlane = n => 300 + 40 * n;
+export const overheadPerDay = S => (3000 + S.bases.reduce((s, c) => s + 1500 + 60 * AP[c].p, 0) + S.fleet.length * orgPerPlane(S.fleet.length)) * (S.overheadMul || 1) + managerSalaries(S);
 
 // Gün sonu hesabı. State'i günceller, özet döner.
 export function settleDay(S) {
   const doy = dayOfYear(gameDate(S.t));
-  let revenue = 0, cost = 0, pax = 0;
+  let revenue = 0, cost = 0, pax = 0, cargo = 0, cargoRev = 0;
   const free = new Map();
   for (const r of S.routes) {
     const e = routeEcon(r, S.fleet, doy, false, S);
-    r.last = { pax: Math.round(2 * (e.pax + e.bPax)), bpax: Math.round(2 * e.bPax), tpax: 0, load: e.load, revenue: e.revenue, net: e.net, demand: Math.round(e.demand), share: e.share };
-    revenue += e.revenue; cost += e.cost; pax += 2 * (e.pax + e.bPax);
+    r.last = { pax: Math.round(2 * (e.pax + e.bPax)), bpax: Math.round(2 * e.bPax), tpax: 0, load: e.load, revenue: e.revenue, net: e.net, demand: Math.round(e.demand), share: e.share,
+      cargo: Math.round(e.cargo * 10) / 10, cargoRev: Math.round(e.cargoRev) };
+    revenue += e.revenue; cost += e.cost; pax += 2 * (e.pax + e.bPax); cargo += e.cargo; cargoRev += e.cargoRev;
     free.set(r.id, Math.max(0, e.seats - e.pax));
   }
   // Aktarmalı yolcular (iki yönde). Yolcu sayısına bir kez girer.
@@ -385,8 +410,9 @@ export function settleDay(S) {
   pax = Math.round(pax);
   S.cash += revenue - cost;
   S.totalPax += pax;
+  S.totalCargo = (S.totalCargo || 0) + cargo;
   S.day++;
-  const rec = { day: S.day, revenue, cost, profit: revenue - cost, pax, tpax: Math.round(tpax) };
+  const rec = { day: S.day, revenue, cost, profit: revenue - cost, pax, tpax: Math.round(tpax), cargo: Math.round(cargo), cargoRev: Math.round(cargoRev) };
   S.history.push(rec);
   if (S.history.length > 400) S.history.shift();
   return rec;

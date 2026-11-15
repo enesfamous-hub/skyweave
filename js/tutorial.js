@@ -2,6 +2,7 @@
 import * as sim from './sim.js';
 import { TIERS } from './data.js';
 import * as P from './progress.js';
+import * as X from './extra.js';
 
 const { AP } = sim;
 const lastPax = S => S.history.length ? S.history[S.history.length - 1].pax : 0;
@@ -35,7 +36,7 @@ export const TIPS = [
   { id: 'license', when: S => S.tier < 4 && S.totalPax >= TIERS[S.tier].pax * 0.4,
     title: 'Lisanslar',
     text: S => `Bir sonraki lisans <b>${TIERS[S.tier].name}</b>: ${num(TIERS[S.tier].pax)} toplam yolcu ve ${money(TIERS[S.tier].fee)} gerekir. Yeni lisans daha uzak havalimanları ve daha büyük uçaklar açar.`, open: ['license', 'license'], btn: 'Lisanslara bak' },
-  { id: 'base2', when: S => S.cash > sim.BASE_COST * 2 && S.bases.length === 1 && S.routes.length >= 3,
+  { id: 'base2', when: S => S.cash > sim.baseCost(S) * 2 && S.bases.length === 1 && S.routes.length >= 3,
     title: 'İkinci üs',
     text: 'Rotalar yalnızca üslerinden başlar. Kalabalık bir havalimanına dokunup <b>Üs kur</b> dersen yeni bir merkez açılır ve oradan da hat açabilirsin.' },
   { id: 'hub', when: S => S.bases.some(b => S.routes.filter(r => r.a === b || r.b === b).length >= 2) && S.day > 4,
@@ -53,6 +54,15 @@ export const TIPS = [
   { id: 'loan', when: S => S.cash < 1.5e6 && S.day > 10 && !(S.loans || []).length,
     title: 'Banka kredisi',
     text: 'Paran azaldıysa <b>Rapor → Finans</b>\'tan kredi çekebilirsin. Taksitler her gün kasadan düşer; borcun arttıkça faiz yükselir.', open: ['report', 'fin'], btn: 'Finans' },
+  { id: 'deal', when: S => (S.offers || []).length > 0,
+    title: 'Sözleşme teklifi geldi',
+    text: 'Tur şirketleri, kargo firmaları ve şehirler sana anlaşma teklif eder: bir hatta koltuk garantisi, ek kargo ya da tanıtım kampanyası. Kabul edersen süre içinde şartı sağlaman gerekir. Teklif 7 gün sonra düşer.', open: ['license', 'deals'], btn: 'Sözleşmeler' },
+  { id: 'cargo', when: S => S.tier >= 2 && S.history.length && (S.history[S.history.length - 1].cargo || 0) > 5,
+    title: 'Kargo da taşıyorsun',
+    text: 'Yolcu uçaklarının alt bölmesinde kargo taşınır. Büyük uçaklar ve uluslararası hatlar daha çok kargo getirir. Hat ekranında ton ve geliri görürsün. <b>Kargo terminali</b> yükseltmesi talebi artırır.' },
+  { id: 'acquire', when: S => (S.rivals || []).some(rv => rv.active && !X.canAcquire(S, rv)),
+    title: 'Rakibi satın alabilirsin',
+    text: 'Şirketin bir rakibi satın alacak kadar büyüdü. Satın alınca merkezi senin üssün olur, hatları ve uçakları sana geçer. <b>Rakipler</b> menüsünün altında.', open: ['rivals'], btn: 'Rakipler' },
   { id: 'offline', when: S => S.day >= 6,
     title: 'Sen yokken de uçarlar',
     text: 'Oyunu kapatınca ya da telefonu bıraktığında uçakların çalışmaya devam eder. Döndüğünde son günlerin ortalamasına göre kazancını toplarsın.' },
@@ -80,7 +90,10 @@ export const GUIDE = [
   ['Uçaklar', 'Kiralık uçak az peşin para ister ama günlük kira ödersin. Satın alınan uçak pahalıdır ama gideri düşüktür. Uçaklar yaşlanır ve yıpranır; ağır bakım durumlarını yeniler. İkinci el uçaklar ucuzdur ama daha çok yakıt yakar.'],
   ['Rakipler', 'Rakip havayolları aynı hatlarda yolcuyu seninle paylaşır. Kapasite, fiyat ve itibar payı belirler. Haftada bir fiyat ve filo kararı verirler; zarar eden hattan çekilirler, borcu çok artan rakip iflas eder.'],
   ['Olaylar', 'Kar, sis, fırtına, bayramlar, festivaller, grevler ve yakıt fiyatı oyunu etkiler. Bazen oyun durur ve bir karar vermen istenir. Süren olaylar <b>Haberler</b>\'de.'],
-  ['Aktarma ve üsler', 'Rotalar üslerinden başlar. Bir üsse bağlı iki hattın uçları arasındaki yolcular orada aktarma yapar ve boş koltukları doldurur. Yeni üs 1,5 M$.'],
+  ['Aktarma ve üsler', 'Rotalar üslerinden başlar. Bir üsse bağlı iki hattın uçları arasındaki yolcular orada aktarma yapar ve boş koltukları doldurur. İkinci üs 1,5 M$; her yeni üs bir öncekinden %80 pahalıdır.'],
+  ['Kargo', 'Yolcu uçaklarının alt bölmesinde kargo taşınır: ATR yaklaşık 0,8 ton, A320 3,5 ton, 777 24 ton. Kargo talebi şehirlerin büyüklüğüne ve mesafeye bağlıdır, uluslararası hatlarda daha yüksektir. Kargo terminali yükseltmesi talebi artırır.'],
+  ['Sözleşmeler', 'Birkaç günde bir teklif gelir. Koltuk anlaşması: süre boyunca her gün bir hatta en az belirtilen kadar koltuk sun (3 aksamada iptal ve ceza). Kargo anlaşması: müşteri hatta ek yük getirir, süre içinde toplam tonajı taşı. Tanıtım kampanyası: şehrin talebi %25 artar, süre içinde belirtilen yolcuyu taşı. Aynı anda en fazla 3 sözleşme.'],
+  ['Büyük şirket olmak', 'Filo büyüdükçe uçak başına yönetim gideri artar: 10 uçaklık şirket uçak başına günde $700, 100 uçaklık şirket $4.300 öder. Ulusal lisanstan sonra zayıflayan ya da senden küçük kalan rakipleri satın alabilirsin. Rozetler Rapor → Rozetler sekmesinde.'],
   ['Slotlar', 'Büyük havalimanlarında günlük kalkış hakkı sınırlıdır. Fazlası için havalimanı ekranından slot paketi al.'],
   ['Gelişim', 'Görevler para ödülü verir. Yükseltmeler kalıcıdır. Müdürler fiyat, filo, yeni hat ve bakımı otomatik yönetir. Holding kurunca her şey sıfırlanır ama kalıcı yıldızlar kazanırsın.'],
   ['Finans', 'Şirket değeri kasa, uçaklar, kârlılık ve borçtan oluşur. Banka kredisi alabilir, Ulusal lisanstan sonra halka arz edip hisse satabilirsin.'],

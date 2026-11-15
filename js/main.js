@@ -1,6 +1,6 @@
 // Oyun döngüsü, arayüz ve kayıt.
 import { Globe } from './globe.js';
-import { AirportTraffic } from './traffic3d.js?v=12';
+import { AirportTraffic } from './traffic3d.js?v=13';
 import { AIRPORTS, AIRCRAFT, TIERS, ZONES } from './data.js';
 import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
@@ -12,14 +12,15 @@ import { fx, play, applyVolume } from './audio.js';
 import { floatText, pulse, confetti, celebrate } from './fx.js';
 import { lineChart, barChart, bindCharts } from './charts.js';
 import { nextTip, GUIDE, TIPS } from './tutorial.js';
+import * as G from './game.js';
+import * as X from './extra.js';
 
-const VERSION = '0.9';
+const VERSION = '1.0';
 
 const { AP, AC } = sim;
 const SAVE_KEY = 'skyweave-save-v2';
-const ROUTE_COLORS = ['#ffd166', '#06d6a0', '#4cc9f0', '#ef476f', '#f8961e', '#c77dff', '#90be6d', '#ff99c8', '#a0c4ff', '#fdffb6', '#9bf6ff', '#ffadad'];
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
-const DAY_OFFSET = 15; // gün sonu: 00:00 TSİ (oyun t=0 → 09:00 TSİ)
+const { DAY_OFFSET } = G;
 const $ = id => document.getElementById(id);
 
 const globe = new Globe($('globe'), { onAirportClick: code => onAirportTap(AP[code]) });
@@ -65,19 +66,12 @@ const tier = () => sim.tierOf(S);
 const fleetById = id => S.fleet.find(f => f.id === id);
 
 // ---------- Durum ve kayıt ----------
-function newState(name, base, legacy = null) {
-  return { v: 2, name, t: 0, day: 0, cash: 15e6, tier: 1, bases: [base], fleet: [], routes: [], totalPax: 0, history: [], seq: 1, regSeq: 0, over: false, rivals: [], news: [], events: [], newsSeen: 0,
-    upgrades: {}, managers: {}, goalsDone: [], goalsNotified: [], legacy, lastSeen: Date.now(), cashBonus: 0,
-    service: 1, slots: {}, loans: [], float: 0, checks: 0, used: null };
-}
-function save() { try { if (S) S.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
+const newState = G.newState;
+function save() { if (!S) return; try { S.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
 function loadSave() {
   try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.v === 2 && !s.over ? s : null; } catch (_) { return null; }
 }
-function nextReg() {
-  const L = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', i = S.regSeq++;
-  return `TC-S${L[Math.floor(i / 26) % 26]}${L[i % 26]}`;
-}
+const nextReg = () => G.nextReg(S);
 
 // ---------- Havaalanı işaretleri (harita katmanı) ----------
 let apKey = '';
@@ -226,11 +220,13 @@ function openAirport(ap) {
       act.appendChild(b);
       if (!base) {
         const bb = document.createElement('button');
-        bb.textContent = `Üs kur (${money(sim.BASE_COST)})`;
-        bb.disabled = S.cash < sim.BASE_COST;
+        const bc = sim.baseCost(S);
+        bb.textContent = `Üs kur (${money(bc)})`;
+        bb.disabled = S.cash < bc;
+        bb.title = 'Her yeni üs bir öncekinden %80 pahalı';
         bb.onclick = () => {
-          if (S.cash < sim.BASE_COST) return;
-          S.cash -= sim.BASE_COST; S.bases.push(ap.c); fx('fanfare'); confetti(120);
+          if (S.cash < bc) return;
+          S.cash -= bc; S.bases.push(ap.c); floatText('−' + money(bc), { good: false }); fx('fanfare'); confetti(120);
           toast(`${ap.n} artık üssün!`); save(); refreshSheet();
         };
         act.appendChild(bb);
@@ -349,21 +345,10 @@ function slotWarn(aps, need) {
   return out.length ? `<p class="err" style="margin-top:8px">Slot yetmiyor. ${out.join(' · ')}. Fazla seferler yapılamaz; havalimanı ekranından slot satın al.</p>` : '';
 }
 
-function addRoute(a, b, planeIds, fareMul = 1) {
-  const used = new Set(S.routes.map(r => r.color));
-  const color = ROUTE_COLORS.find(c => !used.has(c)) || ROUTE_COLORS[S.routes.length % ROUTE_COLORS.length];
-  const r = { id: 'R' + S.seq++, a: a.c, b: b.c, fareMul, planes: planeIds, color, age: 0, last: null };
-  planeIds.forEach(id => { fleetById(id).route = r.id; });
-  S.routes.push(r);
-  return r;
-}
+const addRoute = (a, b, planeIds, fareMul = 1) => G.addRoute(S, a, b, planeIds, fareMul);
 
 function createRoute(a, b, planeIds, fareMul) {
-  const used = new Set(S.routes.map(r => r.color));
-  const color = ROUTE_COLORS.find(c => !used.has(c)) || ROUTE_COLORS[S.routes.length % ROUTE_COLORS.length];
-  const r = { id: 'R' + S.seq++, a: a.c, b: b.c, fareMul, planes: planeIds, color, age: 0, last: null };
-  planeIds.forEach(id => { fleetById(id).route = r.id; });
-  S.routes.push(r);
+  const r = addRoute(a, b, planeIds, fareMul);
   pickFrom = null;
   globe.setPreview(null);
   save();
@@ -415,11 +400,14 @@ function openRoute(r) {
           <div class="kv"><div class="k">Talep / koltuk (yön)</div><div class="v">${num(e.demand)} / ${num(e.seats)}</div></div>
           <div class="kv"><div class="k">Günlük kâr (kira dahil)</div><div class="v ${sign(e.net)}">${money(e.net)}</div></div>
           ${e.comps.length ? `<div class="kv"><div class="k">Pazar payın</div><div class="v">${pct(e.share)}</div></div>` : ''}
+          <div class="kv"><div class="k">Kargo (ton/gün) · gelir</div><div class="v">${(Math.round(e.cargo * 10) / 10).toLocaleString('tr-TR')} · ${money(e.cargoRev)}</div></div>
           ${e.bSeats ? `<div class="kv"><div class="k">Business doluluk · bilet</div><div class="v">${pct(e.bizLoad)} · ${money(e.bFare)}</div></div>` : ''}
           ${r.last && r.last.tdem ? `<div class="kv"><div class="k">Dün aktarmalı yolcu / talep</div><div class="v">${num(r.last.tpax)} / ${num(r.last.tdem)}</div></div>` : ''}
           ${r.last ? `<div class="kv"><div class="k">Dünkü kâr (aktarma dahil)</div><div class="v ${sign(r.last.net)}">${money(r.last.net)}</div></div>` : ''}
         </div>
         ${r.last && r.last.tdem > r.last.tpax * 1.3 + 20 ? '<p class="warn" style="margin-top:8px">Aktarmalı yolcular yer bulamıyor: aktarma yolcuları yalnızca boş koltukları kullanır. Uçak eklersen fazla koltukları onlar doldurur.</p>' : ''}
+        ${e.cargoDem > e.cargo * 1.25 + 1 ? `<p class="meta" style="margin-top:8px">Kargo bölmesi dolu: günde ${num(e.cargoDem - e.cargo)} ton yük kalıyor. Daha büyük uçaklar daha çok kargo taşır.</p>` : ''}
+        ${routeContracts(r)}
         ${e.slotLimited ? '<p class="err" style="margin-top:8px">Slot yetmiyor: seferlerin bir kısmı yapılamıyor. Uç havalimanlarından slot satın al.</p>' : ''}
         ${routeEventWarnings(r)}
         ${compList(e.comps)}
@@ -582,15 +570,34 @@ function openRivals() {
     rows.sort((x, y) => y.pax - x.pax);
     const gone = (S.rivals || []).filter(rv => !rv.active);
     const strength = c => c > 50e6 ? 'güçlü' : c > 5e6 ? 'orta' : c > 0 ? 'zayıf' : 'borçlu';
+    const buyable = (S.rivals || []).filter(rv => rv.active);
     body.innerHTML = `<h3>Rakipler</h3><div class="meta">Dünkü yolcu sayısına göre sıralama</div>
       <div class="list">${rows.map((r, i) => `
         <div class="item" ${r.me ? 'style="border-color:var(--accent)"' : ''}><b style="width:18px">${i + 1}</b><span class="swatch" style="background:${r.color}"></span>
           <div class="grow"><div class="t">${esc(r.name)}</div><div class="s">★ ${AP[r.hub].n} · ${r.routes} hat · ${r.fleet} uçak${r.cash != null ? ' · ' + strength(r.cash) : ''}</div></div>
           <div class="r">${num(r.pax)}<div class="s">%${Math.round(r.pax / total * 100)} pay</div></div></div>`).join('')}</div>
-      ${gone.length ? `<p class="meta" style="margin-top:8px">İflas edenler: ${gone.map(g => g.name).join(', ')}</p>` : ''}
+      ${gone.length ? `<p class="meta" style="margin-top:8px">Pazardan çıkanlar: ${gone.map(g => esc(g.name) + (g.acquired ? ' (satın aldın)' : ' (iflas)')).join(', ')}</p>` : ''}
+      <h4>Şirket satın al</h4>
+      <p class="meta">Bir rakibi satın alırsan merkezi senin üssün olur, hatları ve uçakları (kiralık, 4 yaşında) sana geçer. Zor durumdaki rakip daha ucuzdur.</p>
+      <div class="list" id="rvBuy">${buyable.map(rv => { const why = X.canAcquire(S, rv), c = X.acquireCost(S, rv); return `
+        <div class="item"><span class="swatch" style="background:${rv.color}"></span><div class="grow"><div class="t">${esc(rv.name)}</div>
+          <div class="s">${rv.routes.length} hat · ${rv.routes.reduce((s, r) => s + r.n, 0)} uçak · fiyat ${money(c)}</div>${why ? `<div class="s">🔒 ${why}</div>` : ''}</div>
+          <button class="sm" data-rv="${rv.id}" ${why ? 'disabled' : ''}>Satın al</button></div>`; }).join('') || '<p class="meta">Satın alınacak rakip kalmadı.</p>'}</div>
       <h4>Haberler</h4>
       <div class="list">${(S.news || []).filter(n => !n.kind).slice(-20).reverse().map(n => `
         <div class="item" style="min-height:0"><span class="swatch" style="background:${n.color}"></span><div class="grow"><div class="s" style="margin:0;color:var(--text)">${n.text}</div><div class="s">Gün ${n.day}</div></div></div>`).join('') || '<p class="meta">Henüz haber yok.</p>'}</div>`;
+    bind(body, '#rvBuy button[data-rv]', btn => {
+      const rv = S.rivals.find(x => x.id === btn.dataset.rv);
+      if (!rv || X.canAcquire(S, rv)) return;
+      const c = X.acquireCost(S, rv);
+      if (!confirm(`${rv.name} ${money(c)} karşılığında satın alınsın mı? ${AP[rv.hub].n} üssün olur, hatları ve uçakları sana geçer.`)) return;
+      const res = X.acquireRival(S, rv);
+      if (!res) return;
+      save(); syncGlobe(); updateHUD(true); hideSheet();
+      fx('fanfare');
+      pushNews([{ text: `${S.name}, ${rv.name} şirketini ${money(res.cost)} karşılığında satın aldı.`, color: rv.color, important: true }]);
+      celebrate({ tag: 'Satın alma', title: rv.name, text: `${rv.name} artık ${S.name} çatısı altında.`, items: [`${AP[rv.hub].n} üssün oldu`, `${res.routes} hat ve ${res.planes} uçak devraldın`, 'Devralınan uçaklar kiralık ve 4 yaşında'], button: 'Haritaya dön' });
+    });
   });
 }
 
@@ -762,18 +769,18 @@ function renderLicense(body) {
 
 // ---------- Gelişim paneli ----------
 let growthTab = 'goals';
-const GROWTH_TABS = [['goals', 'Görevler'], ['upgrades', 'Yükseltmeler'], ['auto', 'Otomasyon'], ['license', 'Lisans'], ['holding', 'Holding']];
+const GROWTH_TABS = [['goals', 'Görevler'], ['deals', 'Sözleşmeler'], ['upgrades', 'Yükseltmeler'], ['auto', 'Otomasyon'], ['license', 'Lisans'], ['holding', 'Holding']];
 function openGrowth(tab) {
   if (tab) growthTab = tab;
   selRoute = null; selAirport = null;
   openSheet('license', body => {
     const gs = P.goalState(S);
     body.innerHTML = `<h3>Gelişim</h3>
-      <div class="tabs">${GROWTH_TABS.map(([k, l]) => `<button data-t="${k}" class="${k === growthTab ? 'on' : ''}">${l}${k === 'goals' && gs.claimable ? '<i class="dot"></i>' : ''}</button>`).join('')}</div>
+      <div class="tabs">${GROWTH_TABS.map(([k, l]) => `<button data-t="${k}" class="${k === growthTab ? 'on' : ''}">${l}${(k === 'goals' && gs.claimable) || (k === 'deals' && (S.offers || []).length) ? '<i class="dot"></i>' : ''}</button>`).join('')}</div>
       <div id="gBody"></div>`;
     body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { growthTab = b.dataset.t; refreshSheet(); });
     const gb = body.querySelector('#gBody');
-    ({ goals: renderGoals, upgrades: renderUpgrades, auto: renderAuto, license: renderLicense, holding: renderHolding })[growthTab](gb);
+    ({ goals: renderGoals, deals: renderDeals, upgrades: renderUpgrades, auto: renderAuto, license: renderLicense, holding: renderHolding })[growthTab](gb);
   });
 }
 
@@ -797,6 +804,63 @@ function renderGoals(body) {
       if (r) { fx('goal'); floatText('+' + money(r), { big: true }); pulse('cash'); toast(`Görev tamamlandı: +${money(r)}`); save(); updateHUD(); refreshSheet(); }
     };
     list.appendChild(row);
+  }
+}
+
+// ---------- Sözleşmeler ----------
+const KIND_ICON = { seats: '🎟️', cargo: '📦', pax: '📣' };
+function contractProgress(c) {
+  if (c.kind === 'seats') return { cur: c.prog, max: c.days, label: `${c.prog} / ${c.days} gün · aksama ${c.strikes}/${X.MAX_STRIKES}` };
+  const unit = c.kind === 'cargo' ? 'ton' : 'yolcu';
+  return { cur: Math.min(c.prog, c.need), max: c.need, label: `${num(c.prog)} / ${num(c.need)} ${unit} · ${Math.max(0, c.end - S.day)} gün kaldı` };
+}
+function routeContracts(r) {
+  const cs = (S.contracts || []).filter(c => (c.a && sim.pairKey(c.a, c.b) === sim.pairKey(r.a, r.b)) || c.ap === r.a || c.ap === r.b);
+  if (!cs.length) return '';
+  return `<h4>Bu hattaki sözleşmeler</h4><div class="list">${cs.map(c => { const p = contractProgress(c); return `
+    <div class="item" style="flex-direction:column;align-items:stretch"><div class="t">${KIND_ICON[c.kind]} ${esc(c.title)}</div>
+    <div class="s">${p.label}${c.kind === 'seats' ? ` · gereken ${num(c.need)} koltuk/yön, şu an ${num(X.routeSeats(S, r))}` : ''}</div>
+    <div class="progress"><div style="width:${p.cur / p.max * 100}%"></div></div></div>`; }).join('')}</div>`;
+}
+function renderDeals(body) {
+  const offers = S.offers || [], active = S.contracts || [], log = (S.contractLog || []).slice(-8).reverse();
+  const full = active.length >= X.MAX_CONTRACTS;
+  body.innerHTML = `<div class="meta">Tur şirketleri, kargo firmaları ve şehirler sana anlaşma teklif eder. Teklifler ${X.OFFER_DAYS} gün içinde düşer. Aynı anda en fazla ${X.MAX_CONTRACTS} sözleşme yürütebilirsin.</div>
+    <h4>Süren sözleşmeler (${active.length}/${X.MAX_CONTRACTS})</h4><div class="list" id="dActive"></div>
+    <h4>Teklifler</h4><div class="list" id="dOffers"></div>
+    ${log.length ? `<h4>Geçmiş</h4><div class="list">${log.map(l => `<div class="item" style="min-height:0"><div class="grow"><div class="t">${l.ok ? '✓' : '✗'} ${esc(l.title)}</div><div class="s">Gün ${l.day}</div></div><div class="r ${l.ok ? 'pos' : 'neg'}">${l.reward ? money(l.reward) : '—'}</div></div>`).join('')}</div>` : ''}`;
+  const al = body.querySelector('#dActive');
+  if (!active.length) al.innerHTML = '<p class="meta">Süren sözleşme yok.</p>';
+  for (const c of active) {
+    const p = contractProgress(c);
+    const row = document.createElement('div');
+    row.className = 'item'; row.style.flexDirection = 'column'; row.style.alignItems = 'stretch';
+    const r = c.a ? X.routeOn(S, c.a, c.b) : null;
+    row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px"><div class="t">${KIND_ICON[c.kind]} ${esc(c.title)}</div><div class="r pos">${money(c.reward)}</div></div>
+      <div class="s">${esc(c.client)} · ${esc(c.text)}</div>
+      <div class="s">${p.label}${c.kind === 'seats' ? ` · şu an ${num(X.routeSeats(S, r))} koltuk/yön` : ''}</div>
+      <div class="progress"><div style="width:${p.cur / p.max * 100}%"></div></div>
+      ${c.kind === 'seats' && !r ? '<p class="warn" style="margin-top:6px">Bu hat henüz yok: hemen aç, yoksa her gün aksama sayılır.</p>' : ''}
+      ${r ? '<button class="sm" style="margin-top:8px;align-self:flex-start">Hatta git</button>' : ''}`;
+    const b = row.querySelector('button'); if (b) b.onclick = () => openRoute(r);
+    al.appendChild(row);
+  }
+  const ol = body.querySelector('#dOffers');
+  if (!offers.length) ol.innerHTML = '<p class="meta">Şu an teklif yok. Ağın büyüdükçe birkaç günde bir yeni teklif gelir.</p>';
+  for (const o of offers) {
+    const row = document.createElement('div');
+    row.className = 'item'; row.style.flexDirection = 'column'; row.style.alignItems = 'stretch';
+    row.innerHTML = `<div style="display:flex;justify-content:space-between;gap:8px"><div class="t">${KIND_ICON[o.kind]} ${esc(o.title)}</div><div class="r pos">${money(o.reward)}</div></div>
+      <div class="s">${esc(o.client)} · ${esc(o.text)}</div>
+      <div class="s">${o.penalty ? `Başaramazsan ceza ${money(o.penalty)}` : 'Cezası yok'} · teklif ${Math.max(0, o.expires - S.day)} gün daha geçerli</div>
+      <div style="display:flex;gap:6px;margin-top:8px"><button class="sm primary" data-a="ok" ${full ? 'disabled' : ''}>Kabul et</button><button class="sm" data-a="no">Reddet</button></div>`;
+    row.querySelector('[data-a=ok]').onclick = () => {
+      const c = X.acceptOffer(S, o.id);
+      if (!c) return toast('En fazla 3 sözleşme yürütebilirsin.', 'error');
+      fx('buy'); toast(`Sözleşme imzalandı: ${c.title}`); save(); refreshSheet(); updateGrowthDot();
+    };
+    row.querySelector('[data-a=no]').onclick = () => { X.declineOffer(S, o.id); save(); refreshSheet(); updateGrowthDot(); };
+    ol.appendChild(row);
   }
 }
 
@@ -856,6 +920,7 @@ function renderHolding(body) {
     if (!confirm(`Holding kurulsun mu? Şirketin sıfırlanacak, ★ ${st} yıldız kazanacaksın. Bu geri alınamaz.`)) return;
     const legacy = { count: ((S.legacy && S.legacy.count) || 0) + 1, stars: have + st };
     const ns = newState(S.name, S.firstBase || S.bases[0], legacy);
+    ns.badges = { ...(S.badges || {}) };
     ns.cash += 1e6 * legacy.stars;
     ns.firstBase = S.firstBase || S.bases[0];
     startGame(ns);
@@ -870,10 +935,10 @@ function openReport(tab) {
   if (tab) reportTab = tab;
   openSheet('report', body => {
     body.innerHTML = `<h3>Rapor</h3><div class="meta">Gün ${S.day} · ${S.fleet.length} uçak · ${S.routes.length} rota</div>
-      <div class="tabs">${[['sum', 'Özet'], ['stats', 'Grafikler'], ['fin', 'Finans'], ['svc', 'Hizmet']].map(([k, l]) => `<button data-t="${k}" class="${k === reportTab ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="tabs">${[['sum', 'Özet'], ['stats', 'Grafikler'], ['fin', 'Finans'], ['svc', 'Hizmet'], ['badges', 'Rozetler']].map(([k, l]) => `<button data-t="${k}" class="${k === reportTab ? 'on' : ''}">${l}</button>`).join('')}</div>
       <div id="repBody"></div>`;
     body.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { reportTab = b.dataset.t; refreshSheet(); });
-    ({ sum: renderSummary, stats: renderStats, fin: renderFinance, svc: renderService })[reportTab](body.querySelector('#repBody'));
+    ({ sum: renderSummary, stats: renderStats, fin: renderFinance, svc: renderService, badges: renderBadges })[reportTab](body.querySelector('#repBody'));
   });
 }
 
@@ -886,6 +951,7 @@ function renderSummary(body) {
       <div class="kv"><div class="k">Dünkü gider</div><div class="v">${money(last.cost)}</div></div>
       <div class="kv"><div class="k">Dünkü kâr</div><div class="v ${sign(last.profit)}">${money(last.profit)}</div></div>
       <div class="kv"><div class="k">Dünkü yolcu</div><div class="v">${num(last.pax)}</div></div>
+      ${last.cargo ? `<div class="kv"><div class="k">Kargo · gelir</div><div class="v">${num(last.cargo)} t · ${money(last.cargoRev)}</div></div>` : ''}
       ${last.tpax ? `<div class="kv"><div class="k">Aktarmalı yolcu</div><div class="v">${num(last.tpax)}</div></div>` : ''}
       ${last.interest ? `<div class="kv"><div class="k">Kredi faizi</div><div class="v neg">${money(last.interest)}</div></div>` : ''}
       ${last.div ? `<div class="kv"><div class="k">Temettü</div><div class="v neg">${money(last.div)}</div></div>` : ''}
@@ -898,6 +964,7 @@ function renderSummary(body) {
       <div class="kv"><div class="k">Uçak kira/bakım</div><div class="v">${money(fixed)}</div></div>
       <div class="kv"><div class="k">Genel gider</div><div class="v">${money(sim.overheadPerDay(S))}</div></div>
     </div>
+    <p class="meta" style="margin-top:6px">Genel giderde uçak başına yönetim payı ${money(sim.orgPerPlane(S.fleet.length))}/gün. Filo büyüdükçe bu pay artar.</p>
     ${(S.transfers || []).length ? `<h4>En çok aktarma yapılan yollar</h4><div class="list">${S.transfers.slice(0, 6).map(f => `
       <div class="item" style="min-height:0"><div class="grow"><div class="t">${AP[f.x].n} → ${AP[f.y].n}</div><div class="s">${AP[f.h].n} üzerinden</div></div><div class="r">${num(f.pax)}<div class="s">yolcu/gün</div></div></div>`).join('')}</div>`
       : `<p class="meta" style="margin-top:12px">Aktarmalı yolcu yok. Bir üssünden iki farklı yöne hat aç: uçları arasında seyahat edenler üssünde aktarma yapar.</p>`}
@@ -905,6 +972,15 @@ function renderSummary(body) {
   const sorted = [...S.routes].sort((x, y) => (y.last?.net ?? 0) - (x.last?.net ?? 0));
   routeList(body.querySelector('#repRoutes'), sorted);
   bindCharts(body, FMTS);
+}
+
+// ---------- Rozetler ----------
+function renderBadges(body) {
+  const got = S.badges || {}, n = Object.keys(got).length;
+  body.innerHTML = `<div class="meta">Kazandığın rozetler: <b>${n} / ${X.BADGES.length}</b>. Rozetler Holding kurunca da kalır.</div>
+    <div class="progress" style="margin-bottom:12px"><div style="width:${n / X.BADGES.length * 100}%"></div></div>
+    <div class="badges">${X.BADGES.map(b => `<div class="badge ${got[b.id] != null ? 'on' : ''}"><div class="bi">${got[b.id] != null ? b.icon : '🔒'}</div>
+      <div class="bn">${b.name}</div><div class="bt">${b.text}</div>${got[b.id] != null ? `<div class="bd">Gün ${got[b.id]}</div>` : ''}</div>`).join('')}</div>`;
 }
 
 let statRange = 90;
@@ -1009,7 +1085,7 @@ function renderFinance(body) {
     row.innerHTML = `<div class="grow"><div class="t">${money(l.amount)} kredi · %${(l.rate * 100).toFixed(1)}</div>
       <div class="s">Kalan borç ${money(l.principal)} · ${l.left} gün · taksit ${money(l.pay)}/gün</div></div>
       <button class="sm" ${S.cash < l.principal ? 'disabled' : ''}>Kapat</button>`;
-    row.querySelector('button').onclick = () => { if (D.repayLoan(S, l.id)) { toast('Kredi kapatıldı.'); save(); updateHUD(); refreshSheet(); } };
+    row.querySelector('button').onclick = () => { if (D.repayLoan(S, l.id)) { S.loansRepaid = (S.loansRepaid || 0) + 1; toast('Kredi kapatıldı.'); save(); updateHUD(); refreshSheet(); } };
     ll.appendChild(row);
   }
   body.querySelector('#shSell').onclick = () => {
@@ -1125,7 +1201,7 @@ function checkGoals() {
 }
 function updateGrowthDot() {
   const b = document.querySelector('#nav [data-panel=license]');
-  if (b) b.classList.toggle('has-dot', !!(S && P.goalState(S).claimable));
+  if (b) b.classList.toggle('has-dot', !!(S && (P.goalState(S).claimable || (S.offers || []).length)));
 }
 
 function showOffline(ms) {
@@ -1160,14 +1236,7 @@ window.addEventListener('pagehide', () => save());
 
 // ---------- Gün sonu ----------
 function endOfDay() {
-  const rec = sim.settleDay(S);
-  D.dailyFinance(S, rec);
-  recordStats(rec);
-  const news = spawnRivals(S);
-  if (S.day % 7 === 0) news.push(...weeklyRivals(S));
-  news.push(...dailyEvents(S));
-  news.push(...D.dailyFleet(S));
-  news.push(...P.runManagers(S, (a, b, ids) => addRoute(a, b, ids), D.runTech));
+  const { rec, news, recs, badges } = G.advanceDay(S);
   pushNews(news);
   syncGlobe();
   save();
@@ -1180,8 +1249,10 @@ function endOfDay() {
     pulse('cash', rec.profit >= 0);
     if (speed <= 4) play(rec.profit >= 0 ? 'coin' : 'loss');
   }
-  const recs = checkRecords(rec);
   const imp = news.filter(n => n.important);
+  const won = news.filter(n => n.kind === 'contract' && n.reward);
+  if (won.length) { fx('goal'); floatText('+' + money(won.reduce((s, n) => s + n.reward, 0)), { big: true }); }
+  if (badges.length) setTimeout(() => { fx('record'); confetti(60, cashPoint()); toast(`${badges[0].icon} Yeni rozet: ${badges[0].name}${badges.length > 1 ? ` (+${badges.length - 1})` : ''}`); }, recs.length ? 2500 : 300);
   if (recs.length) { fx('record'); confetti(70, cashPoint()); toast('🏆 ' + recs.join(' · ')); }
   else if (imp.length) { fx(imp.some(n => /^#(ef476f|e85d04|e63946|e76f51)/i.test(n.color || '')) ? 'bad' : 'notify'); toast(imp[0].text + (imp.length > 1 ? ` (+${imp.length - 1} haber daha, Haberler'e bak)` : '')); }
   else if (S.day % 7 === 0) toast(`Hafta özeti: dünkü kâr ${money(rec.profit)} · ${num(rec.pax)} yolcu`);
@@ -1189,43 +1260,6 @@ function endOfDay() {
 }
 
 const cashPoint = () => { const r = $('cash').getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom }; };
-
-// Günlük istatistik: kasa, pazar payı ve hat geçmişi
-function recordStats(rec) {
-  rec.cash = Math.round(S.cash);
-  const rivalPax = (S.rivals || []).filter(rv => rv.active).reduce((s, rv) => s + (rv.lastPax || 0), 0);
-  rec.mshare = rec.pax + rivalPax ? rec.pax / (rec.pax + rivalPax) : 1;
-  rec.routes = S.routes.length; rec.fleet = S.fleet.length;
-  for (const r of S.routes) {
-    if (!r.last) continue;
-    r.hist = r.hist || [];
-    r.hist.push({ d: S.day, net: Math.round(r.last.net), load: +r.last.load.toFixed(3), share: r.last.share == null ? null : +r.last.share.toFixed(3), pax: r.last.pax });
-    if (r.hist.length > 60) r.hist.shift();
-  }
-}
-
-// Tüm zamanların rekorları (geçmiş 400 günle sınırlı olduğu için ayrı tutulur)
-function checkRecords(rec) {
-  const fresh = !S.records;
-  const R = S.records = S.records || {};
-  const out = [];
-  const beat = (key, val, label, minDay = 3) => {
-    const old = R[key];
-    if (!old || val > old.v) {
-      R[key] = { v: val, day: S.day };
-      if (old && S.day > minDay && old.v > 0) out.push(label);
-    }
-  };
-  beat('profit', rec.profit, `Rekor: en kârlı gün (${money(rec.profit)})`);
-  beat('pax', rec.pax, `Rekor: bir günde ${num(rec.pax)} yolcu`);
-  if (!R.worst || rec.profit < R.worst.v) R.worst = { v: rec.profit, day: S.day };
-  if (!R.cash || S.cash > R.cash.v) R.cash = { v: S.cash, day: S.day };
-  // Yolcu kilometre taşları
-  const MS = [1e4, 1e5, 5e5, 1e6, 5e6, 1e7, 5e7, 1e8];
-  const ms = MS.filter(m => S.totalPax >= m).pop();
-  if (ms && (R.paxMs || 0) < ms) { if (!fresh) out.push(`${num(ms)}. yolcu taşındı!`); R.paxMs = ms; }
-  return out;
-}
 
 function gameOver() {
   S.over = true; save();
@@ -1263,6 +1297,7 @@ function startGame(state) {
   S.fleet.forEach(f => { if (f.age == null) f.age = 0; if (f.cond == null) f.cond = 100; });
   S.slots = S.slots || {}; S.loans = S.loans || []; S.float = S.float || 0;
   if (S.service == null) S.service = 1;
+  S.contracts = S.contracts || []; S.offers = S.offers || []; S.badges = S.badges || {}; S.totalCargo = S.totalCargo || 0;
   if (!S.used) D.refreshUsed(S);
   const away = S.lastSeen ? Date.now() - S.lastSeen : 0;
   if (away > 0) setTimeout(() => showOffline(away), 700);
@@ -1450,8 +1485,19 @@ function sanitizeImported(st) {
   for (const rv of st.rivals || []) {
     rv.color = color(rv.color);
     if (!isAp(rv.hub)) bad('rakip');
-    rv.routes = (rv.routes || []).filter(rr => isAp(rr.a) && isAp(rr.b));
+    rv.routes = (rv.routes || []).filter(rr => isAp(rr.a) && isAp(rr.b) && Object.prototype.hasOwnProperty.call(AC, rr.type));
   }
+  // v1.0: sözleşmeler, rozetler
+  const okDeal = c => ['seats', 'cargo', 'pax'].includes(c.kind) && ID.test(c.id || '') && (c.kind === 'pax' ? isAp(c.ap) : isAp(c.a) && isAp(c.b));
+  st.offers = (st.offers || []).filter(okDeal);
+  st.contracts = (st.contracts || []).filter(okDeal);
+  for (const c of [...st.offers, ...st.contracts]) numF(c, 'need', 'days', 'reward', 'penalty', 'extra', 'rep', 'expires', 'start', 'end', 'prog', 'strikes');
+  st.contractLog = (st.contractLog || []).map(l => ({ kind: String(l.kind), title: String(l.title || '').slice(0, 80), ok: !!l.ok, day: Number(l.day) || 0, reward: Number(l.reward) || 0 }));
+  const known = new Set(X.BADGES.map(b => b.id)), bd = {};
+  for (const [k, v] of Object.entries(st.badges || {})) if (known.has(k)) bd[k] = Number(v) || 0;
+  st.badges = bd;
+  st.acquired = (st.acquired || []).filter(x => ID.test(x));
+  numF(st, 'totalCargo', 'contractsDone', 'loansRepaid');
   for (const n of st.news || []) n.color = color(n.color);
   for (const e of st.events || []) if (e.airports) e.airports = e.airports.filter(isAp);
   st.bases = st.bases.filter(isAp);
@@ -1506,4 +1552,4 @@ setupStart();
 requestAnimationFrame(frame);
 
 // Test için: ?debug ile açınca konsoldan erişilebilir.
-if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute, D, openAirport, openRoute, openFleet, openMarket, openReport, openSettings, checkTips, endOfDayN: n => { for (let i = 0; i < n; i++) endOfDay(); } };
+if (location.search.includes('debug')) window.SKY = { get S() { return S; }, sim, globe, endOfDay, openPlanner, createRoute, acquire, AP, AC, zoomToAirport, traffic, openRivals, spawnRivals, weeklyRivals, openNews, showDecision, dailyEvents, P, openGrowth, showOffline, addRoute, D, openAirport, openRoute, openFleet, openMarket, openReport, openSettings, checkTips, X, G, endOfDayN: n => { for (let i = 0; i < n; i++) endOfDay(); } };

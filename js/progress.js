@@ -14,6 +14,7 @@ export const UPGRADES = [
   { id: 'launch', name: 'Açılış kampanyaları',   max: 4, base: 500e3, tier: 1, desc: L => `Yeni hat talebi %${40 + 10 * L}'tan başlar, ${Math.round(30 * (1 - 0.15 * L))} günde dolar` },
   { id: 'night',  name: 'Gece vardiyası müdürü', max: 5, base: 300e3, tier: 1, desc: L => `Çevrimdışı kazanç ${8 + 2 * L} saate kadar, verim %${50 + 10 * L}` },
   { id: 'mkt',    name: 'Sadakat programı',      max: 5, base: 900e3, tier: 2, desc: L => `Tüm hatlarında talep +%${3 * L}` },
+  { id: 'cargo',  name: 'Kargo terminali',       max: 5, base: 1e6,   tier: 2, desc: L => `Kargo talebi +%${20 * L} (uçaklarının alt bölmesi)` },
   { id: 'hub',    name: 'Aktarma merkezi',       max: 4, base: 1.2e6, tier: 2, desc: L => `Üslerinde aktarmalı yolcu talebi +%${15 * L}` },
 ];
 export const upgradeCost = (u, L) => Math.round(u.base * Math.pow(2.3, L) / 1000) * 1000;

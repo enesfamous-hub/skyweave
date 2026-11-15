@@ -4,7 +4,7 @@ export const ZONES = { TR: 'Türkiye', K: 'Kıtasal', W: 'Dünya' };
 // Lisans seviyeleri
 export const TIERS = [
   { id: 1, name: 'Bölgesel',     desc: "Türkiye içi, 600 km'ye kadar rotalar",                             zones: ['TR'],           maxKm: 600,      fee: 0,     pax: 0 },
-  { id: 2, name: 'Ulusal',       desc: 'Tüm Türkiye iç hatları',                                            zones: ['TR'],           maxKm: Infinity, fee: 3e6,   pax: 40000 },
+  { id: 2, name: 'Ulusal',       desc: 'Tüm Türkiye iç hatları',                                            zones: ['TR'],           maxKm: Infinity, fee: 3e6,   pax: 60000 },
   { id: 3, name: 'Kıtasal',      desc: 'Avrupa, Orta Doğu, Kuzey Afrika, Kafkasya ve Orta Asya',           zones: ['TR', 'K'],      maxKm: Infinity, fee: 20e6,  pax: 400000 },
   { id: 4, name: 'Uluslararası', desc: 'Tüm dünya',                                                        zones: ['TR', 'K', 'W'], maxKm: Infinity, fee: 80e6,  pax: 2500000 },
 ];
@@ -115,16 +115,17 @@ export const AIRPORTS = [
 // Gerçek uçak modelleri (değerler yaklaşık, oyun için yuvarlanmış).
 // seats: koltuk, range: menzil km, speed: seyir km/s, burn: kg yakıt/km,
 // hourly: blok saat başına ekip+bakım $, fee: sefer başına havalimanı/seyrüsefer $,
-// price: milyon $, turn: yer süresi (saat), util: günlük çalışma saati, tier: gereken lisans
+// price: milyon $, turn: yer süresi (saat), util: günlük çalışma saati, tier: gereken lisans,
+// cargo: yolcu uçağının altındaki kargo bölmesine sefer başına sığan ton
 export const AIRCRAFT = [
-  { id: 'atr72', name: 'ATR 72-600',         maker: 'ATR',     seats: 70,  range: 1500,  speed: 510, burn: 1.3, hourly: 1400, fee: 700,  price: 26,  turn: 0.4, util: 15, tier: 1 },
-  { id: 'q400',  name: 'Dash 8-400',         maker: 'De Havilland', seats: 78, range: 2000, speed: 650, burn: 1.7, hourly: 1700, fee: 800,  price: 32,  turn: 0.4, util: 15, tier: 1 },
-  { id: 'e195',  name: 'E195-E2',            maker: 'Embraer', seats: 132, range: 4800,  speed: 830, burn: 2.6, hourly: 2800, fee: 1700, price: 60,  turn: 0.5, util: 16, tier: 2 },
-  { id: 'a223',  name: 'A220-300',           maker: 'Airbus',  seats: 145, range: 6200,  speed: 830, burn: 2.7, hourly: 3000, fee: 1800, price: 75,  turn: 0.5, util: 16, tier: 2 },
-  { id: 'a20n',  name: 'A320neo',            maker: 'Airbus',  seats: 180, range: 6300,  speed: 840, burn: 2.9, hourly: 3800, fee: 2400, price: 105, turn: 0.6, util: 16, tier: 2 },
-  { id: 'b38m',  name: '737-8',              maker: 'Boeing',  seats: 178, range: 6500,  speed: 840, burn: 3.0, hourly: 3800, fee: 2400, price: 100, turn: 0.6, util: 16, tier: 2 },
-  { id: 'a21n',  name: 'A321neo',            maker: 'Airbus',  seats: 220, range: 7400,  speed: 840, burn: 3.4, hourly: 4400, fee: 2800, price: 125, turn: 0.7, util: 16, tier: 3 },
-  { id: 'b789',  name: '787-9',              maker: 'Boeing',  seats: 290, range: 14000, speed: 900, burn: 5.6, hourly: 8500, fee: 6000, price: 290, turn: 1.5, util: 19, tier: 4 },
-  { id: 'a359',  name: 'A350-900',           maker: 'Airbus',  seats: 315, range: 15000, speed: 900, burn: 5.9, hourly: 9000, fee: 6500, price: 315, turn: 1.5, util: 19, tier: 4 },
-  { id: 'b77w',  name: '777-300ER',          maker: 'Boeing',  seats: 396, range: 13600, speed: 900, burn: 7.6, hourly: 11000, fee: 8000, price: 375, turn: 1.7, util: 19, tier: 4 },
+  { id: 'atr72', name: 'ATR 72-600',         maker: 'ATR',     seats: 70,  range: 1500,  speed: 510, burn: 1.3, hourly: 1400, fee: 700,  price: 26,  turn: 0.4, util: 15, tier: 1, cargo: 0.8 },
+  { id: 'q400',  name: 'Dash 8-400',         maker: 'De Havilland', seats: 78, range: 2000, speed: 650, burn: 1.7, hourly: 1700, fee: 800,  price: 32,  turn: 0.4, util: 15, tier: 1, cargo: 1.0 },
+  { id: 'e195',  name: 'E195-E2',            maker: 'Embraer', seats: 132, range: 4800,  speed: 830, burn: 2.6, hourly: 2800, fee: 1700, price: 60,  turn: 0.5, util: 16, tier: 2, cargo: 2.5 },
+  { id: 'a223',  name: 'A220-300',           maker: 'Airbus',  seats: 145, range: 6200,  speed: 830, burn: 2.7, hourly: 3000, fee: 1800, price: 75,  turn: 0.5, util: 16, tier: 2, cargo: 3 },
+  { id: 'a20n',  name: 'A320neo',            maker: 'Airbus',  seats: 180, range: 6300,  speed: 840, burn: 2.9, hourly: 3800, fee: 2400, price: 105, turn: 0.6, util: 16, tier: 2, cargo: 3.5 },
+  { id: 'b38m',  name: '737-8',              maker: 'Boeing',  seats: 178, range: 6500,  speed: 840, burn: 3.0, hourly: 3800, fee: 2400, price: 100, turn: 0.6, util: 16, tier: 2, cargo: 3.5 },
+  { id: 'a21n',  name: 'A321neo',            maker: 'Airbus',  seats: 220, range: 7400,  speed: 840, burn: 3.4, hourly: 4400, fee: 2800, price: 125, turn: 0.7, util: 16, tier: 3, cargo: 4.5 },
+  { id: 'b789',  name: '787-9',              maker: 'Boeing',  seats: 290, range: 14000, speed: 900, burn: 5.6, hourly: 8500, fee: 6000, price: 290, turn: 1.5, util: 19, tier: 4, cargo: 16 },
+  { id: 'a359',  name: 'A350-900',           maker: 'Airbus',  seats: 315, range: 15000, speed: 900, burn: 5.9, hourly: 9000, fee: 6500, price: 315, turn: 1.5, util: 19, tier: 4, cargo: 18 },
+  { id: 'b77w',  name: '777-300ER',          maker: 'Boeing',  seats: 396, range: 13600, speed: 900, burn: 7.6, hourly: 11000, fee: 8000, price: 375, turn: 1.7, util: 19, tier: 4, cargo: 24 },
 ];

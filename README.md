@@ -6,7 +6,8 @@ Türkiye'de küçük bir bölgesel havayolu kur, dünyaya açıl. Tarayıcıda �
 
 - Dünya küresinden havalimanına kadar kesintisiz yakınlaşma; havalimanlarında OpenStreetMap verisiyle gerçek pistler, 3B binalar ve 3B uçak trafiği
 - Gerçek uçak modelleri, talep ekonomisi, lisanslarla büyüme (Bölgesel → Ulusal → Kıtasal → Uluslararası)
-- Rakip havayolları, olaylar ve haberler
+- Rakip havayolları (satın alınabilir), olaylar ve haberler
+- Kargo, sözleşme teklifleri, rozetler
 - Ses ve müzik, grafikler, kayıt taşıma; ana ekrana eklenip internetsiz oynanabilir (PWA)
 
 Tasarım ayrıntıları: [TASARIM.md](TASARIM.md)
@@ -18,6 +19,14 @@ python -m http.server 8417
 ```
 
 Sonra tarayıcıda `http://localhost:8417` adresini aç.
+
+## Testler
+
+```bash
+node tests/run.mjs
+```
+
+Bot oyuncuyla oyunu 365 gün oynatıp dengeyi ve tutarlılığı denetler (Node 22+). Ayrıntılı denge raporu: `node tests/balance.mjs 720 4`.
 
 ## Kaynaklar
 

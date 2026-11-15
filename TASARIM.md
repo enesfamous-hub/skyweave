@@ -1,4 +1,4 @@
-# SkyWeave — Tasarım Belgesi (v0.9)
+# SkyWeave — Tasarım Belgesi (v1.0)
 
 > Türkiye'de küçük bir bölgesel havayolu olarak başla, dünyanın dört bir yanına uçan bir dev ol.
 
@@ -32,7 +32,7 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - Çok kısa mesafede (<400 km) insanlar karayolunu seçtiği için talep düşer. Çok uzun mesafede de azalır.
 - Yeni açılan rota talebin %40'ıyla başlar, 30 günde tam talebe ulaşır.
 - Sezon: yazın genel talep biraz artar. Turistik yerlerde (Antalya, Bodrum, Dalaman...) yaz talebi çok artar, kış talebi düşer.
-- Fiyat: varsayılan bilet = 35 $ + 0,075 $/km. Oyuncu rota başına %60–%160 arası ayarlar. Pahalılaştıkça talep düşer.
+- Fiyat: varsayılan bilet = 35 $ + 0,075 $/km (2.000 km'den sonra km başı 0,05 $; uzun hatlar daha ucuz). Oyuncu rota başına %60–%160 arası ayarlar. Pahalılaştıkça talep düşer.
 
 ### Uçaklar (gerçek modeller)
 | Model | Koltuk | Menzil | Lisans |
@@ -56,13 +56,14 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 | Seviye | Nereye uçabilirsin | Şart |
 |---|---|---|
 | 1. Bölgesel | Türkiye içi, 600 km'ye kadar | Başlangıç |
-| 2. Ulusal | Tüm Türkiye | 40 bin yolcu + 3 M$ |
+| 2. Ulusal | Tüm Türkiye | 60 bin yolcu + 3 M$ |
 | 3. Kıtasal | Avrupa, Orta Doğu, Kuzey Afrika, Kafkasya, Orta Asya | 400 bin yolcu + 20 M$ |
 | 4. Uluslararası | Tüm dünya | 2,5 milyon yolcu + 80 M$ |
 
 ### Üsler
 - Her rotanın bir ucu senin üssün olmalı. Başlangıçta 1 üs seçersin.
-- Yeni üs: 1,5 M$ (lisansının izin verdiği bölgede).
+- İkinci üs 1,5 M$; her yeni üs bir öncekinin 1,8 katı (3. üs 2,7 M$, 5. üs 8,7 M$, 8. üs 51 M$). Lisansının izin verdiği bölgede.
+- Genel gider: merkez 3.000 $ + üs başına 1.500 $ + 60 $ × nüfus (milyon) + uçak başına yönetim payı. Yönetim payı filo büyüdükçe artar: uçak başına 300 $ + 40 $ × filo büyüklüğü (10 uçak → 700 $, 100 uçak → 4.300 $).
 
 ### Rakipler
 - Rakip isimleri hayalidir. Gerçek havayollarını taklit etmez.
@@ -131,6 +132,21 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **Uygulama (PWA):** Uygulama tanımı (manifest), simgeler ve service worker. Ana ekrana eklenince tam ekran açılır. Oyun dosyaları ve MapLibre önbellekte durduğu için internetsiz açılır; gezilen harita karoları da (en fazla 2.500) önbelleğe alınır.
 - **Eğitim:** İlk adımlar üstteki ipucu çubuğunda. Sonra oyun ilerledikçe 17 bağlamsal ipucu kartı bir kez çıkar: gün sonu ve rapor, yakınlaşma, dolu ve boş hatlar, görevler, rakipler, olaylar, yükseltmeler, lisanslar, ikinci üs, aktarma, bakım, slotlar, müdürler, kredi, çevrimdışı kazanç, holding. Karttaki düğme ilgili menüyü açar.
 
+### v1.0: Oyunun ortası tekrara düşmesin
+Benzer oyunların incelemelerinde en sık şikâyet, oyunun ortasında ve sonunda her şeyin "sayı büyüsün" döngüsüne dönmesi. Bu yüzden v1.0'da çekirdek döngüyü (hat aç, uçak koy, fiyat ayarla) kullanan ama her seferinde farklı bir karar isteyen sistemler eklendi, ekonomi de büyüdükçe yavaşlayacak şekilde dengelendi.
+
+- **Denge (testlerle):** Bot oyuncuyla yapılan testlerde eski ekonomi üstel büyüyordu (240. günde 368 uçak, günde 41 M$ kâr; bir 777 günde 220 bin $ kazanıyordu). Uzun hat bileti, üs fiyatlarının artışı ve büyük filonun yönetim gideri ile şimdi: Ulusal ~11. gün, Kıtasal ~150–200. gün, Uluslararası ~290–320. gün, 1. yıl sonunda günde 9–15 M$ kâr.
+- **Kargo:** Yolcu uçaklarının alt bölmesinde kargo taşınır (ATR 0,8 t, A320 3,5 t, 777 24 t). Talep şehir büyüklüğüne ve mesafeye bağlı, uluslararası hatlarda %30 fazla. Ücret: 200 $ + 0,35 $/km (2.000 km'den sonra 0,12 $/km) ton başına, elleçleme 60 $/t. Rakipli hatta kargo payı yolcu payına göre. **Kargo terminali** yükseltmesi (Ulusal): talep +%20/sv.
+- **Sözleşmeler (Gelişim → Sözleşmeler):** Birkaç günde bir teklif gelir, 7 günde düşer, aynı anda en fazla 3 sözleşme.
+  - *Koltuk anlaşması* (tur şirketleri): süre boyunca (20–45 gün) bir hatta her gün yön başına en az N koltuk. 3 aksamada iptal, ceza ve itibar kaybı.
+  - *Kargo anlaşması* (Ulusal lisanstan sonra): müşteri hatta günlük ek yük getirir; süre içinde toplam tonajı taşı. Darboğaz uçakların bölme kapasitesi.
+  - *Tanıtım kampanyası* (şehirler): kampanya boyunca şehrin talebi %25 artar; süre içinde belirtilen yolcuyu taşırsan ödül ve itibar, ceza yok.
+  - Ödüller şirket büyüdükçe artar (en az, son günlerin ortalama kârının belli bir katı), böylece oyunun sonunda da anlamlı kalır.
+- **Rakip satın alma (Rakipler menüsü):** Ulusal lisanstan sonra, merkezi lisans bölgende olan rakibi satın alabilirsin. Fiyat: kiralık uçaklarının değeri (liste fiyatının %5'i) + günlük kâr × 240 + kasasının %30'u − borcu, × 1,35 (borçlu rakip %20 ucuz). Şirket değerin fiyatın 1,5 katı olmalı. Merkezi senin üssün olur; hatları ve uçakları (kiralık, 4 yaşında, %85 durumda) sana geçer. Lisansının izin vermediği uçak tipleri izinli en büyük tiple değişir. Oyunun sonundaki büyük para için anlamlı bir hedef.
+- **Rozetler (Rapor → Rozetler):** 29 kalıcı başarım (ilk kalkış, kapalı gişe, kargocu, şirket avcısı, unicorn, fırtınaya rağmen...). Holding kurunca da kalır.
+- **Testler:** `node tests/run.mjs` bot oyuncuyla 3 oyunu 365 gün oynatır; iflas, NaN, lisans zamanları, kâr ve filo sınırları, sözleşmeler, uçak–hat tutarlılığı, rakip satın alma ve kayıt gidiş-dönüşünü denetler. `node tests/balance.mjs [gün] [tohum]` ayrıntılı denge raporu basar.
+- **Hata düzeltme:** Başlangıç ekranındayken sekme kapanır ya da gizlenirse kayıt boş değerle eziliyordu. Artık oyun yokken kayıt yazılmıyor.
+
 ### Gün-gece
 - Küre üzerinde güneş, oyun saatine ve tarihe göre gerçek konumunda. Gece tarafı karanlık.
 
@@ -139,7 +155,8 @@ v0.1'deki Metro tarzı "yolcu birikir, taşarsa kaybedersin" mantığı kaldır�
 - **v0.3 (şimdi):** Harita MapLibre küre görünümüne geçti. Yakınlaştıkça gerçek harita ve havalimanında OpenStreetMap verisiyle gerçek pistler, taksi yolları, apronlar ve 3B binalar (terminal, kule, hangar). Yakınlaşınca kamera otomatik eğilir. Gece bölgesi harita üzerinde gölge olarak görünür. Ayrı yakın plan ekranı kaldırıldı (kodu `arsiv/v0.3` içinde).
 - **v0.3.1 (tamam):** Havalimanına yakınlaşınca 3B uçaklar: OpenStreetMap'teki gerçek kapılara park eder (kapı yoksa apron üzerine), gerçek pistlere iner ve kalkar, taksi yollarından geçer, geri itilir (pushback). Senin uçakların sarı kuyruklu, sayıları o havalimanındaki sefer payına göre.
 - **v0.6 (tamam):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
-- **v0.9 (şimdi):** Cila ve deneyim: ses ve müzik, görsel geri bildirim, grafikler, ayarlar, kayıt taşıma, PWA, bağlamsal eğitim.
+- **v1.0 (şimdi):** Denge testleri, kargo, sözleşmeler, rakip satın alma, rozetler.
+- **v0.9 (tamam):** Cila ve deneyim: ses ve müzik, görsel geri bildirim, grafikler, ayarlar, kayıt taşıma, PWA, bağlamsal eğitim.
 - **v0.8 (tamam):** Derinlik: aktarmalı yolcu, kabin sınıfları ve hizmet, uçak yaşı ve bakım, ikinci el pazarı, kredi ve hisse, slotlar.
 - **v0.7 (tamam):** İdle çekirdeği: çevrimdışı kazanç, yükseltmeler, görevler, otomasyon (müdürler), Holding (prestij). Bkz. "İlerleme" bölümü.
 - **v0.5 (tamam):** Rakip havayolları. Bkz. "Rakipler" bölümü.
@@ -166,6 +183,9 @@ js/audio.js        ses efektleri, müzik, titreşim (Web Audio)
 js/fx.js           uçan para yazısı, konfeti, kutlama kartı
 js/charts.js       SVG çizgi ve sütun grafikler
 js/tutorial.js     bağlamsal ipuçları ve "Nasıl oynanır" rehberi
+js/game.js         arayüzden bağımsız çekirdek: yeni oyun, hat açma, gün sonu akışı
+js/extra.js        sözleşmeler, rakip satın alma, rozetler
+tests/             Node testleri: bot oyuncu, denge raporu (node tests/run.mjs)
 js/main.js         oyun döngüsü, arayüz, kayıt
 sw.js              service worker (internetsiz çalışma)
 manifest.webmanifest, icons/   uygulama tanımı ve simgeler
