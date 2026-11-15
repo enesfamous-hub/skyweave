@@ -69,6 +69,15 @@ export function fuelMul(S, player = false) {
   return activeEvents(S).reduce((m, e) => m * (e.fuel ?? 1), 1);
 }
 export const grounded = S => new Set(activeEvents(S).filter(e => e.grounded).map(e => e.grounded));
+// ---------- Holding yolu (prestij sonrası seçilen strateji) ----------
+export const PATHS = {
+  none:  { id: 'none',  name: 'Klasik havayolu', icon: '✈', desc: 'Dengeli: özel bonus yok.', cost: 1, dem: 1, biz: 1, rep: 1, cargo: 1, cRate: 1, paxFee: 0 },
+  lcc:   { id: 'lcc',   name: 'Ucuz havayolu',   icon: '🎫', desc: 'İşletme gideri −%4, yolcu başı gider −1 $, talep +%3. Business talebi −%40, itibar −%5.', cost: 0.96, dem: 1.03, biz: 0.6, rep: 0.95, cargo: 1, cRate: 1, paxFee: -1 },
+  lux:   { id: 'lux',   name: 'Lüks havayolu',   icon: '🥂', desc: 'Business talebi +%60, itibar +%12 (rakiplere karşı pazar payı). İşletme gideri +%2.', cost: 1.02, dem: 1, biz: 1.6, rep: 1.12, cargo: 1, cRate: 1, paxFee: 0 },
+  cargo: { id: 'cargo', name: 'Kargo devi',      icon: '📦', desc: 'Kargo talebi +%80, kargo ücreti +%20. Kargo anlaşmaları daha sık gelir.', cost: 1, dem: 1, biz: 1, rep: 1, cargo: 1.8, cRate: 1.2, paxFee: 0 },
+};
+export const pathOf = S => PATHS[S && S.legacy && S.legacy.path] || PATHS.none;
+
 // ---------- Yükseltme ve prestij etkileri ----------
 export const lvl = (S, id) => (S && S.upgrades && S.upgrades[id]) || 0;
 export const stars = S => (S && S.legacy && S.legacy.stars) || 0;
@@ -80,7 +89,7 @@ export function rampP(S, age) {
   return Math.min(1, start + (1 - start) * (age || 0) / days);
 }
 export const playerFixed = (S, f) => fixedPerDay(f) * (1 - 0.06 * lvl(S, 'maint'));
-export const playerRep = S => (S ? (S.rep || 1) : 1) * (1 + 0.03 * lvl(S, 'lounge')) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1) * serviceOf(S).rep * fleetQuality(S);
+export const playerRep = S => (S ? (S.rep || 1) : 1) * pathOf(S).rep * (1 + 0.03 * lvl(S, 'lounge')) * activeEvents(S).reduce((m, e) => m * (e.rep ?? 1), 1) * serviceOf(S).rep * fleetQuality(S);
 export const playerStrike = S => activeEvents(S).some(e => e.strike);
 // Bir hattın kapasite çarpanı (iki ucun en kötüsü)
 export const pairCap = (S, aC, bC) => S ? Math.min(evFactors(S, aC).cap, evFactors(S, bC).cap) : 1;
@@ -242,7 +251,7 @@ export function pairMarket(S, aC, bC, doy, { playerRoute = null, fleet = S ? S.f
   const entries = [];
   const pr = playerRoute || (S ? S.routes.find(r => pairKey(r.a, r.b) === pairKey(aC, bC)) : null);
   const phys = pr ? playerSeats(S, pr, fleet, d) : 0;
-  if (pr) entries.push({ kind: 'player', route: pr, seats: ecoSeats(pr, phys), phys, fareMul: pr.fareMul, rep: playerRep(S), ramp: (mature ? 1 : rampP(S, pr.age)) * (1 + 0.03 * lvl(S, 'mkt')) });
+  if (pr) entries.push({ kind: 'player', route: pr, seats: ecoSeats(pr, phys), phys, fareMul: pr.fareMul, rep: playerRep(S), ramp: (mature ? 1 : rampP(S, pr.age)) * (1 + 0.03 * lvl(S, 'mkt')) * pathOf(S).dem });
   for (const { rv, rr } of rivalsOnPair(S, aC, bC)) {
     entries.push({ kind: 'rival', rv, route: rr, seats: rivalRouteSeats(rr, S), fareMul: rr.fareMul, rep: rv.rep, ramp: rampOf(rr.age) });
   }
@@ -262,7 +271,7 @@ export function routeEcon(route, fleet, doy, mature = false, S = null) {
     cargoCap += 2 * rt * (ac.cargo || 0);
     const fm = fuelMul(S, true) * (1 - 0.04 * lvl(S, 'fuel')) * planeFuelMul(p);
     const wm = (S ? S.wageMul || 1 : 1) * (1 - 0.04 * lvl(S, 'crew'));
-    legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fm, wm); fixed += playerFixed(S, p);
+    legs += 2 * rt; opCost += 2 * rt * legCost(d, ac, fm, wm) * pathOf(S).cost; fixed += playerFixed(S, p);
   }
   const fare = baseFare(d) * route.fareMul;
   const pax = me.pax, seats = me.seats;
@@ -272,17 +281,17 @@ export function routeEcon(route, fleet, doy, mature = false, S = null) {
   const bFare = baseFare(d) * BIZ_FARE * route.fareMul;
   let bPax = 0;
   if (bSeats > 0) {
-    const pot = m.D0 * bizShare(AP[route.a], AP[route.b], d) * svc.biz * (1 + 0.04 * lvl(S, 'lounge')) * me.ramp * Math.pow(route.fareMul, -0.8);
+    const pot = m.D0 * bizShare(AP[route.a], AP[route.b], d) * svc.biz * pathOf(S).biz * (1 + 0.04 * lvl(S, 'lounge')) * me.ramp * Math.pow(route.fareMul, -0.8);
     bPax = Math.min(bSeats, pot * (m.entries.length > 1 ? 0.55 + 0.45 * (m.total ? pax / m.total : 1) : 1));
   }
   // Kargo: kapasite uçakların bölmesi, pay yolcu payı kadar
   const cShare = m.entries.length > 1 && m.total ? 0.3 + 0.7 * pax / m.total : 1;
-  const cDem = cargoDemand(AP[route.a], AP[route.b], d) * (S ? evFactors(S, route.a).dem * evFactors(S, route.b).dem : 1) * (1 + 0.2 * lvl(S, 'cargo')) * me.ramp;
+  const cDem = cargoDemand(AP[route.a], AP[route.b], d) * (S ? evFactors(S, route.a).dem * evFactors(S, route.b).dem : 1) * (1 + 0.2 * lvl(S, 'cargo')) * pathOf(S).cargo * me.ramp;
   const cargo = Math.min(cargoCap / 2, cDem * cShare + contractCargo(S, route.a, route.b) / 2);   // yön başına ton
   const bonus = 1 + 0.05 * stars(S);
-  const cargoRev = 2 * cargo * cargoRate(d) * bonus;
+  const cargoRev = 2 * cargo * cargoRate(d) * pathOf(S).cRate * bonus;
   const revenue = 2 * (pax * fare + bPax * bFare) * bonus + cargoRev;
-  const cost = opCost + 2 * (pax + bPax) * (PAX_FEE + svc.cost) + 2 * bPax * 15 + 2 * cargo * CARGO_HANDLING;
+  const cost = opCost + 2 * (pax + bPax) * (PAX_FEE + svc.cost + pathOf(S).paxFee) + 2 * bPax * 15 + 2 * cargo * CARGO_HANDLING;
   const allSeats = seats + bSeats;
   const inS = S && S.routes.includes(route);
   return {

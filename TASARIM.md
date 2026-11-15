@@ -1,4 +1,4 @@
-# SkyWeave — Tasarım Belgesi (v1.1)
+# SkyWeave — Tasarım Belgesi (v1.2)
 
 > Türkiye'de küçük bir bölgesel havayolu olarak başla, dünyanın dört bir yanına uçan bir dev ol.
 
@@ -162,6 +162,17 @@ Benzer oyunların incelemelerinde en sık şikâyet, oyunun ortasında ve sonund
 - **Renk körü dostu renkler (Ayarlar):** Kâr/zarar yeşil/kırmızı yerine mavi/turuncu.
 - Rakip satın alma fiyatı artık son günlerin ortalama kârına bakıyor (haftadan haftaya zıplamıyor).
 
+### v1.2: Kimlik, günün görevi, Holding yolları
+- **Havayolu kimliği (Ayarlar → Havayolu):** Ad, 12 renk, 16 logo ve 4 uçak boyası (Klasik: beyaz gövde, renkli kuyruk; Tam boya; Gece; Tek renk). Önizlemede yandan uçak görünümü. Yakınlaşınca 3B uçakların seçtiğin boyayla uçar; üst çubukta logo ve renk, rakip sıralamasında senin rengin. Kimlik Holding'den sonra da kalır.
+- **Günün görevi (açılış ekranı):** Her gün herkese aynı başlangıç: tarihten üretilen üs, takvim ayı ve 1–2 koşul (pahalı yakıt, az ya da çok para, turizm patlaması, saldırgan rakipler, ucuz ikinci el, düşük itibar, açılış kampanyası). Oyunun rastgeleliği tohumludur: aynı hamleler aynı olayları getirir. 60 günün sonunda şirket değeri puandır. Ayrı kayıtta tutulur, asıl oyunu bozmaz; çevrimdışı kazanç ve Holding kapalı. Son 14 günün en iyi puanları saklanır.
+- **Holding yolları:** Holding kurarken yeni şirketin stratejisini seçersin, her Holding'de değiştirilebilir:
+  - 🎫 Ucuz havayolu: işletme gideri −%4, yolcu başı gider −1 $, talep +%3; business talebi −%40, itibar −%5.
+  - 🥂 Lüks havayolu: business talebi +%60, itibar +%12; işletme gideri +%2.
+  - 📦 Kargo devi: kargo talebi +%80, kargo ücreti +%20, kargo anlaşmaları daha sık.
+  Bot testlerinde ucuz havayolu 1. yılda ~%20 önde; lüks ve kargo yolları business kabinli uzun hatlarla ve kargoya yatırımla öne geçer.
+- **Ana menüye dön (Ayarlar):** Oyunu kaydedip açılış ekranına döner (günün görevine geçmek için).
+- Düzeltme: rozet ekranının stili üst çubuktaki lisans rozetini soluk gösteriyordu.
+
 ### Gün-gece
 - Küre üzerinde güneş, oyun saatine ve tarihe göre gerçek konumunda. Gece tarafı karanlık.
 
@@ -170,7 +181,8 @@ Benzer oyunların incelemelerinde en sık şikâyet, oyunun ortasında ve sonund
 - **v0.3 (şimdi):** Harita MapLibre küre görünümüne geçti. Yakınlaştıkça gerçek harita ve havalimanında OpenStreetMap verisiyle gerçek pistler, taksi yolları, apronlar ve 3B binalar (terminal, kule, hangar). Yakınlaşınca kamera otomatik eğilir. Gece bölgesi harita üzerinde gölge olarak görünür. Ayrı yakın plan ekranı kaldırıldı (kodu `arsiv/v0.3` içinde).
 - **v0.3.1 (tamam):** Havalimanına yakınlaşınca 3B uçaklar: OpenStreetMap'teki gerçek kapılara park eder (kapı yoksa apron üzerine), gerçek pistlere iner ve kalkar, taksi yollarından geçer, geri itilir (pushback). Senin uçakların sarı kuyruklu, sayıları o havalimanındaki sefer payına göre.
 - **v0.6 (tamam):** Olaylar ve haberler. Bkz. "Olaylar" bölümü.
-- **v1.1 (şimdi):** Senaryolar, 174 havalimanı, renk körü modu.
+- **v1.2 (şimdi):** Havayolu kimliği, günün görevi, Holding yolları.
+- **v1.1 (tamam):** Senaryolar, 174 havalimanı, renk körü modu.
 - **v1.0 (tamam):** Denge testleri, kargo, sözleşmeler, rakip satın alma, rozetler.
 - **v0.9 (tamam):** Cila ve deneyim: ses ve müzik, görsel geri bildirim, grafikler, ayarlar, kayıt taşıma, PWA, bağlamsal eğitim.
 - **v0.8 (tamam):** Derinlik: aktarmalı yolcu, kabin sınıfları ve hizmet, uçak yaşı ve bakım, ikinci el pazarı, kredi ve hisse, slotlar.
@@ -202,6 +214,8 @@ js/tutorial.js     bağlamsal ipuçları ve "Nasıl oynanır" rehberi
 js/game.js         arayüzden bağımsız çekirdek: yeni oyun, hat açma, gün sonu akışı
 js/extra.js        sözleşmeler, rakip satın alma, rozetler
 js/scenarios.js    senaryolar: başlangıç, hedef, süre, yıldız
+js/identity.js     havayolu rengi, logosu, uçak boyası
+js/daily.js        günün görevi (tarihten tohumlu başlangıç)
 tests/             Node testleri: bot oyuncu, denge raporu (node tests/run.mjs)
 js/main.js         oyun döngüsü, arayüz, kayıt
 sw.js              service worker (internetsiz çalışma)

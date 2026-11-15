@@ -78,8 +78,29 @@ export function checkRecords(S, rec) {
   return out;
 }
 
+// Günün görevi gibi modlarda oyunun rastgeleliği tohumludur: herkes aynı olayları görür.
+export function rng32(state) {
+  let a = state >>> 0;
+  const next = () => {
+    a = (a + 0x6D2B79F5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, 1 | t);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+  next.state = () => a;
+  return next;
+}
+export function withSeed(S, fn) {
+  if (S.rngState == null) return fn();
+  const orig = Math.random, r = rng32(S.rngState);
+  Math.random = r;
+  try { return fn(); } finally { Math.random = orig; S.rngState = r.state(); }
+}
+
 // Bir günü kapatır. Arayüz bunu çağırır, sonra haberleri ve rekorları gösterir.
-export function advanceDay(S) {
+export function advanceDay(S) { return withSeed(S, () => advanceDay0(S)); }
+function advanceDay0(S) {
   const rec = sim.settleDay(S);
   D.dailyFinance(S, rec);
   recordStats(S, rec);

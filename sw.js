@@ -1,5 +1,5 @@
 // SkyWeave service worker: oyunu internetsiz açar, harita karolarını önbelleğe alır.
-const VERSION = 'v1.1.0';
+const VERSION = 'v1.2.0';
 const APP = 'skyweave-app-' + VERSION;
 const LIB = 'skyweave-lib-v1';
 const TILES = 'skyweave-tiles-v1';
@@ -7,9 +7,9 @@ const MAX_TILES = 2500;
 let puts = 0;
 
 const SHELL = [
-  './', 'index.html', 'manifest.webmanifest', 'css/style.css?v=14',
-  'js/main.js?v=14', 'js/traffic3d.js?v=14', 'js/globe.js', 'js/data.js', 'js/sim.js', 'js/rivals.js', 'js/events.js',
-  'js/progress.js', 'js/depth.js', 'js/settings.js', 'js/audio.js', 'js/fx.js', 'js/charts.js', 'js/tutorial.js', 'js/game.js', 'js/extra.js', 'js/scenarios.js',
+  './', 'index.html', 'manifest.webmanifest', 'css/style.css?v=15',
+  'js/main.js?v=15', 'js/traffic3d.js?v=15', 'js/globe.js', 'js/data.js', 'js/sim.js', 'js/rivals.js', 'js/events.js',
+  'js/progress.js', 'js/depth.js', 'js/settings.js', 'js/audio.js', 'js/fx.js', 'js/charts.js', 'js/tutorial.js', 'js/game.js', 'js/extra.js', 'js/scenarios.js', 'js/identity.js', 'js/daily.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 const LIBS = [

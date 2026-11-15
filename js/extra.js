@@ -39,6 +39,7 @@ function makeOffer(S) {
   const tier = sim.tierOf(S);
   const kinds = ['seats', 'seats', 'pax'];
   if (S.tier >= 2) kinds.push('cargo', 'cargo');
+  if (sim.pathOf(S).id === 'cargo') kinds.push('cargo', 'cargo', 'cargo');
   const kind = pick(kinds);
   const taken = new Set([...(S.offers || []), ...(S.contracts || [])].map(o => o.key));
   if (kind === 'seats') {

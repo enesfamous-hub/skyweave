@@ -226,6 +226,6 @@ export function companyValue(S) {
 // Senin payın (halka arzda satılan hisseler düşülür)
 export const ownerValue = S => companyValue(S) * (1 - (S.float || 0));
 export const starsFor = S => Math.floor(Math.sqrt(Math.max(0, ownerValue(S)) / 25e6));
-export const canPrestige = S => S.tier >= 3 && starsFor(S) >= 1;
+export const canPrestige = S => !S.daily && S.tier >= 3 && starsFor(S) >= 1;
 export const legacyStars = S => (S.legacy && S.legacy.stars) || 0;
 export const prestigeText = s => `Gelir +%${5 * s} · başlangıç kasası +${money(1e6 * s)}`;

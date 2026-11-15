@@ -32,6 +32,7 @@ export class AirportTraffic {
     this.map = map;
     this.airports = airports;
     this.shareFor = shareFor;
+    this.livery = { tail: OUR, body: '#fff6dc' };
     this.ap = null;
     this.planes = [];
     this.movers = [];
@@ -69,6 +70,9 @@ export class AirportTraffic {
     if (!best) { this.clear(); return; }
     if (best !== this.ap || !this.built) { this.ap = best; this.built = false; this.pendingBuild = true; this.tryBuild(); }
   }
+
+  // Oyuncunun uçak boyası: { tail, body, wing }
+  setLivery(l) { this.livery = { ...this.livery, ...l }; if (this.planes.length) this.draw(true); }
 
   clear() {
     if (!this.ap && !this.planes.length) return;
@@ -211,7 +215,7 @@ export class AirportTraffic {
 
   newPlane(ours) {
     // Diğer uçaklar: o havalimanında uçan rakiplerin renkleri (sefer paylarına göre), kalanı genel renkler
-    let tail = ours ? OUR : pick(OTHERS);
+    let tail = ours ? null : pick(OTHERS);
     if (!ours && this.others && this.others.length) {
       let r = Math.random() * (1 - this.share);
       for (const o of this.others) { r -= o.w; if (r < 0) { tail = o.color; break; } }
@@ -349,7 +353,8 @@ export class AirportTraffic {
         feats.push({
           type: 'Feature', geometry: { type: 'Polygon', coordinates: [ring] },
           properties: {
-            color: part.c === 'tail' ? pl.tail : part.c === 'eng' ? ENG : (pl.ours && part.h === 4 ? '#fff6dc' : BODY),
+            color: part.c === 'tail' ? (pl.ours ? this.livery.tail : pl.tail) : part.c === 'eng' ? ENG
+              : pl.ours ? (part.h === 4 ? this.livery.body : this.livery.wing || BODY) : BODY,
             base: pl.alt + part.base * k, top: pl.alt + (part.base + part.h) * k,
           },
         });

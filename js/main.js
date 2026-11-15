@@ -1,6 +1,6 @@
 // Oyun döngüsü, arayüz ve kayıt.
 import { Globe } from './globe.js';
-import { AirportTraffic } from './traffic3d.js?v=14';
+import { AirportTraffic } from './traffic3d.js?v=15';
 import { AIRPORTS, AIRCRAFT, TIERS, ZONES } from './data.js';
 import * as sim from './sim.js';
 import { spawnRivals, weeklyRivals, rivalFlightsAt } from './rivals.js';
@@ -15,11 +15,13 @@ import { nextTip, GUIDE, TIPS } from './tutorial.js';
 import * as G from './game.js';
 import * as X from './extra.js';
 import * as SC from './scenarios.js';
+import * as ID from './identity.js';
+import * as DY from './daily.js';
 
-const VERSION = '1.1';
+const VERSION = '1.2';
 
 const { AP, AC } = sim;
-const SAVE_KEY = 'skyweave-save-v2';
+const SAVE_KEY = 'skyweave-save-v2', DAILY_KEY = 'skyweave-daily';
 const MONTHS = ['Oca', 'Şub', 'Mar', 'Nis', 'May', 'Haz', 'Tem', 'Ağu', 'Eyl', 'Eki', 'Kas', 'Ara'];
 const { DAY_OFFSET } = G;
 const $ = id => document.getElementById(id);
@@ -68,9 +70,9 @@ const fleetById = id => S.fleet.find(f => f.id === id);
 
 // ---------- Durum ve kayıt ----------
 const newState = G.newState;
-function save() { if (!S) return; try { S.lastSeen = Date.now(); localStorage.setItem(SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
-function loadSave() {
-  try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); return s && s.v === 2 && !s.over ? s : null; } catch (_) { return null; }
+function save() { if (!S) return; try { S.lastSeen = Date.now(); localStorage.setItem(S.daily ? DAILY_KEY : SAVE_KEY, JSON.stringify(S)); } catch (_) { /* depolama yok */ } }
+function loadSave(key = SAVE_KEY) {
+  try { const s = JSON.parse(localStorage.getItem(key)); return s && s.v === 2 && !s.over ? s : null; } catch (_) { return null; }
 }
 const nextReg = () => G.nextReg(S);
 
@@ -565,7 +567,7 @@ function openRivals() {
   selRoute = null; selAirport = null;
   openSheet('rivals', body => {
     const myPax = S.history.length ? S.history[S.history.length - 1].pax : 0;
-    const rows = [{ name: S.name + ' (sen)', color: '#ffd166', pax: myPax, routes: S.routes.length, fleet: S.fleet.length, hub: S.bases[0], me: true }]
+    const rows = [{ name: S.name + ' (sen)', color: ID.brandOf(S).color, pax: myPax, routes: S.routes.length, fleet: S.fleet.length, hub: S.bases[0], me: true }]
       .concat((S.rivals || []).filter(rv => rv.active).map(rv => ({ name: rv.name, color: rv.color, pax: rv.lastPax, routes: rv.routes.length, fleet: rv.routes.reduce((s, r) => s + r.n, 0), hub: rv.hub, cash: rv.cash })));
     const total = rows.reduce((s, r) => s + r.pax, 0) || 1;
     rows.sort((x, y) => y.pax - x.pax);
@@ -903,8 +905,12 @@ function renderAuto(body) {
   }
 }
 
+let holdPath = null;
 function renderHolding(body) {
+  if (S.daily) { body.innerHTML = '<p class="meta">Günün görevinde Holding kurulamaz.</p>'; return; }
   const st = P.starsFor(S), have = P.legacyStars(S), can = P.canPrestige(S);
+  const cur = sim.pathOf(S);
+  if (!holdPath) holdPath = cur.id;
   body.innerHTML = `<div class="meta">Holding kurduğunda şirketin sıfırdan başlar ama kazandığın yıldızlar kalıcıdır.</div>
     <div class="grid2">
       <div class="kv"><div class="k">Senin payının değeri</div><div class="v">${money(P.ownerValue(S))}</div></div>
@@ -913,21 +919,28 @@ function renderHolding(body) {
       <div class="kv"><div class="k">Kurulan holding</div><div class="v">${(S.legacy && S.legacy.count) || 0}</div></div>
     </div>
     <p class="meta" style="margin-top:10px">Şu anki bonusun: ${P.prestigeText(have)}.<br>Holding sonrası: ${P.prestigeText(have + st)}.</p>
-    <p class="meta">Sıfırlananlar: kasa, filo, hatlar, üsler, slotlar, krediler, hisseler, lisans, yükseltmeler, müdürler, görevler, rakipler. Kalanlar: yıldızlar ve havayolu adın.</p>
+    <p class="meta">Sıfırlananlar: kasa, filo, hatlar, üsler, slotlar, krediler, hisseler, lisans, yükseltmeler, müdürler, görevler, rakipler. Kalanlar: yıldızlar, rozetler, havayolu adın ve kimliğin.</p>
+    <h4>Holding yolu</h4>
+    <p class="meta">Şu anki yolun: <b>${cur.icon} ${cur.name}</b>. Yeni şirketin hangi stratejiyle başlasın? Her Holding'de yeniden seçebilirsin.</p>
+    <div class="paths" id="hPaths">${Object.values(sim.PATHS).map(p => `<button data-p="${p.id}" class="${p.id === holdPath ? 'on' : ''}"><div class="pt">${p.icon} ${p.name}</div><div class="pd">${p.desc}</div></button>`).join('')}</div>
     ${can ? '' : '<p class="warn">Holding kurmak için en az Kıtasal lisans ve 1 yıldızlık şirket değeri ($25M) gerekir.</p>'}
     <div class="row"><button id="btnPrestige" class="primary" ${can ? '' : 'disabled'}>Holding kur ve yeniden başla (★ +${st})</button></div>`;
+  body.querySelectorAll('#hPaths button').forEach(b => b.onclick = () => { holdPath = b.dataset.p; refreshSheet(); });
   body.querySelector('#btnPrestige').onclick = () => {
     if (!P.canPrestige(S)) return;
     if (!confirm(`Holding kurulsun mu? Şirketin sıfırlanacak, ★ ${st} yıldız kazanacaksın. Bu geri alınamaz.`)) return;
-    const legacy = { count: ((S.legacy && S.legacy.count) || 0) + 1, stars: have + st };
+    const path = sim.PATHS[holdPath] || sim.PATHS.none;
+    const legacy = { count: ((S.legacy && S.legacy.count) || 0) + 1, stars: have + st, path: path.id };
     const ns = newState(S.name, S.firstBase || S.bases[0], legacy);
     ns.badges = { ...(S.badges || {}) };
+    ns.brand = S.brand;
+    holdPath = null;
     ns.cash += 1e6 * legacy.stars;
     ns.firstBase = S.firstBase || S.bases[0];
     startGame(ns);
     save();
     fx('fanfare');
-    celebrate({ tag: 'Holding', title: `★ ${legacy.stars} yıldız`, text: `${S.name} holdinge dönüştü. Yeni şirketin daha güçlü başlıyor.`, items: [P.prestigeText(legacy.stars)], button: 'Yeniden başla' });
+    celebrate({ tag: 'Holding', title: `★ ${legacy.stars} yıldız`, text: `${S.name} holdinge dönüştü. Yeni şirketin daha güçlü başlıyor.`, items: [P.prestigeText(legacy.stars), `Yol: ${path.icon} ${path.name}. ${path.desc}`], button: 'Yeniden başla' });
   };
 }
 
@@ -980,7 +993,7 @@ function renderBadges(body) {
   const got = S.badges || {}, n = Object.keys(got).length;
   body.innerHTML = `<div class="meta">Kazandığın rozetler: <b>${n} / ${X.BADGES.length}</b>. Rozetler Holding kurunca da kalır.</div>
     <div class="progress" style="margin-bottom:12px"><div style="width:${n / X.BADGES.length * 100}%"></div></div>
-    <div class="badges">${X.BADGES.map(b => `<div class="badge ${got[b.id] != null ? 'on' : ''}"><div class="bi">${got[b.id] != null ? b.icon : '🔒'}</div>
+    <div class="bdgs">${X.BADGES.map(b => `<div class="bdg ${got[b.id] != null ? 'on' : ''}"><div class="bi">${got[b.id] != null ? b.icon : '🔒'}</div>
       <div class="bn">${b.name}</div><div class="bt">${b.text}</div>${got[b.id] != null ? `<div class="bd">Gün ${got[b.id]}</div>` : ''}</div>`).join('')}</div>`;
 }
 
@@ -1167,7 +1180,9 @@ function updateHUD() {
   $('dateLbl').textContent = `${tr.getUTCDate()} ${MONTHS[tr.getUTCMonth()]} ${tr.getUTCFullYear()}`;
   $('clock').textContent = `${String(tr.getUTCHours()).padStart(2, '0')}:${String(tr.getUTCMinutes()).padStart(2, '0')}`;
   $('tierBadge').textContent = tier().name;
-  $('airlineName').textContent = S.name;
+  const br = ID.brandOf(S);
+  $('airlineName').textContent = `${br.logo} ${S.name}${S.daily ? ` · Günün görevi ${S.day}/${S.daily.days}` : ''}`;
+  $('airlineName').style.color = br.color;
   updateHint();
 }
 
@@ -1206,7 +1221,7 @@ function updateGrowthDot() {
 }
 
 function showOffline(ms) {
-  if (!S || S.over) return;
+  if (!S || S.over || S.daily) return;
   const o = P.offlineEarnings(S, ms);
   if (!o) return;
   const h = Math.floor(o.minutes / 60), m = Math.round(o.minutes % 60);
@@ -1239,6 +1254,8 @@ window.addEventListener('pagehide', () => save());
 function endOfDay() {
   const { rec, news, recs, badges, scenario } = G.advanceDay(S);
   if (scenario) setTimeout(() => showScenarioResult(scenario), 400);
+  const daily = DY.checkDaily(S);
+  if (daily) setTimeout(() => showDailyResult(daily), 400);
   pushNews(news);
   syncGlobe();
   save();
@@ -1317,6 +1334,7 @@ function startGame(state) {
   hintKey = ''; updateHUD();
   setSpeed(settings.speed || 1);
   tipShown = null; hideTip();
+  applyBrand();
 }
 
 function setupStart() {
@@ -1335,6 +1353,7 @@ function setupStart() {
     .map(a => `<option value="${a.c}">${a.n} (${a.c})</option>`).join('');
   sel.value = 'IST';
   ss.value = 'free'; ss.onchange();
+  renderDailyCard();
   const saved = loadSave();
   const box = $('continueBox');
   box.innerHTML = '';
@@ -1357,6 +1376,78 @@ $('btnNew').onclick = () => {
   save();
 };
 $('btnRestart').onclick = () => { $('gameover').classList.remove('show'); S = null; syncGlobe(); setupStart(); $('start').classList.add('show'); };
+
+// ---------- Havayolu kimliği ----------
+function applyBrand() {
+  if (!S) return;
+  traffic.setLivery(ID.liveryColors(ID.brandOf(S)));
+  updateHUD();
+}
+function brandSection() {
+  const b = ID.brandOf(S);
+  return `<h4 id="brandSec">Havayolu</h4>
+    <div class="list"><div class="item" style="flex-direction:column;align-items:stretch">
+      <div class="plane-prev" id="brPrev">${ID.planeSvg(b)}</div>
+      <label class="s" style="margin-top:6px">Ad<input id="brName" maxlength="24" value="${esc(S.name)}" style="margin-top:4px"></label>
+      <div class="s" style="margin-top:10px">Renk</div>
+      <div class="swatches" id="brColors">${ID.BRAND_COLORS.map(c => `<button data-c="${c}" class="${c === b.color ? 'on' : ''}" style="background:${c}" aria-label="Renk ${c}"></button>`).join('')}</div>
+      <div class="s" style="margin-top:10px">Logo</div>
+      <div class="swatches logos" id="brLogos">${ID.LOGOS.map(l => `<button data-l="${l}" class="${l === b.logo ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="s" style="margin-top:10px">Uçak boyası</div>
+      <div class="tabs" id="brLivery" style="margin-top:6px">${ID.LIVERIES.map(l => `<button data-v="${l.id}" class="${l.id === b.livery ? 'on' : ''}" title="${l.desc}">${l.name}</button>`).join('')}</div>
+    </div></div>`;
+}
+function bindBrand(body) {
+  const set = patch => { S.brand = { ...ID.brandOf(S), ...patch }; save(); applyBrand(); syncGlobe(); refreshSheet(); };
+  body.querySelectorAll('#brColors button').forEach(x => x.onclick = () => set({ color: x.dataset.c }));
+  body.querySelectorAll('#brLogos button').forEach(x => x.onclick = () => set({ logo: x.dataset.l }));
+  body.querySelectorAll('#brLivery button').forEach(x => x.onclick = () => set({ livery: x.dataset.v }));
+  const nm = body.querySelector('#brName');
+  nm.onchange = () => { const v = nm.value.replace(/[<>"`]/g, '').trim().slice(0, 24); if (v) { S.name = v; S.brand = ID.brandOf(S); save(); updateHUD(); } };
+}
+
+// ---------- Ana menü ve günün görevi ----------
+function toMenu() {
+  save();
+  S = null; closeSheet(); hideTip(); syncGlobe(); updateMarkers();
+  $('celebrate').classList.remove('show');
+  setupStart(); $('start').classList.add('show');
+}
+function renderDailyCard() {
+  const box = $('dailyBox');
+  const def = DY.dailyDef();
+  let run = loadSave(DAILY_KEY);
+  if (run && (!run.daily || run.daily.key !== def.key || run.daily.done)) { try { localStorage.removeItem(DAILY_KEY); } catch (_) { /* yok */ } run = null; }
+  const best = settings.daily && settings.daily[def.key];
+  box.innerHTML = `<div class="daily-card"><div class="dt">📅 Günün görevi · ${DY.dateLabel(def.key)}</div>
+    <div class="ds">${DY.describeDaily(def)}${best ? `<br><b>Bugünkü en iyi puanın: ${money(best)}</b>` : ''}</div>
+    <button class="big" id="btnDaily">${run ? `Devam et (gün ${run.day}/${run.daily.days})` : best ? 'Yeniden dene' : 'Başla'}</button></div>`;
+  box.querySelector('#btnDaily').onclick = () => {
+    if (run) return startGame(run);
+    const name = $('nameInput').value.trim() || 'Anadolu Kanatları';
+    const st = DY.newDaily(name, def);
+    const main = loadSave();
+    if (main && main.brand) st.brand = main.brand;
+    startGame(st); save();
+    setTimeout(() => toast(`📅 Günün görevi: ${DY.DAILY_DAYS} gün. Puanın, son gündeki şirket değerin.`), 1200);
+  };
+}
+function showDailyResult(r) {
+  settings.daily = settings.daily || {};
+  const key = S.daily.key, old = settings.daily[key];
+  const rec = !old || r.score > old;
+  if (rec) settings.daily[key] = r.score;
+  // Son 14 günü tut
+  const keys = Object.keys(settings.daily).sort();
+  while (keys.length > 14) delete settings.daily[keys.shift()];
+  saveSettings();
+  fx(rec ? 'fanfare' : 'goal'); hideSheet();
+  try { localStorage.removeItem(DAILY_KEY); } catch (_) { /* yok */ }
+  const hist = Object.entries(settings.daily).filter(([k]) => k !== key).sort().slice(-5).map(([k, v]) => `${DY.dateLabel(k)}: ${money(v)}`);
+  celebrate({ tag: 'Günün görevi bitti', title: money(r.score), text: rec ? (old ? `Yeni rekor! Önceki en iyin ${money(old)}.` : 'Bugünkü ilk puanın.') : `Bugünkü en iyin ${money(old)}.`,
+    items: [`${S.name} · ${S.routes.length} hat · ${S.fleet.length} uçak · ${num(S.totalPax)} yolcu`, ...hist.length ? ['Önceki günler: ' + hist.join(' · ')] : [], 'Yarın yeni bir görev gelir.'], button: 'Ana menü', party: rec })
+    .then(() => { S.over = true; S = null; syncGlobe(); updateMarkers(); setupStart(); $('start').classList.add('show'); });
+}
 
 // ---------- Senaryo ----------
 function scenarioBox() {
@@ -1391,11 +1482,12 @@ const applyCb = () => document.documentElement.classList.toggle('cb', !!settings
 applyCb();
 
 // ---------- Ayarlar ----------
-function openSettings() {
+function openSettings(focus) {
   selRoute = null; selAirport = null;
   openSheet('settings', body => {
     const tog = (k, label, desc) => `<label class="item check"><div class="grow"><div class="t">${label}</div>${desc ? `<div class="s">${desc}</div>` : ''}</div><input type="checkbox" data-k="${k}" ${settings[k] ? 'checked' : ''}></label>`;
     body.innerHTML = `<h3>Ayarlar</h3><div class="meta">SkyWeave ${VERSION} · ayarlar bu cihazda saklanır</div>
+      ${S ? brandSection() : ''}
       <h4>Ses</h4>
       <div class="list">
         ${tog('sfx', 'Ses efektleri', 'Kalkış, para, rekor ve bildirim sesleri')}
@@ -1418,7 +1510,7 @@ function openSettings() {
       <div class="row"><button id="setExport" class="primary">Dosyaya kaydet</button><button id="setCopy">Kodu kopyala</button></div>
       <div class="row"><button id="setImport">İçe aktar</button></div>
       <h4>Tehlikeli bölge</h4>
-      <div class="row"><button id="setReset" class="danger">Oyunu sıfırla</button></div>
+      <div class="row"><button id="setMenu">Ana menüye dön</button><button id="setReset" class="danger">${S && S.daily ? 'Günün görevini bırak' : 'Oyunu sıfırla'}</button></div>
       <p class="meta" style="margin-top:14px">Harita: © OpenStreetMap katkıcıları, OpenFreeMap, OpenMapTiles. Harita motoru: MapLibre GL JS.</p>`;
     body.querySelectorAll('input[data-k]').forEach(i => i.onchange = () => {
       settings[i.dataset.k] = i.checked; saveSettings(); applyVolume();
@@ -1447,7 +1539,16 @@ function openSettings() {
       catch (_) { openImport(code); }
     };
     body.querySelector('#setImport').onclick = () => openImport();
+    if (S) bindBrand(body);
+    if (focus === 'brand') body.querySelector('#brandSec')?.scrollIntoView();
+    body.querySelector('#setMenu').onclick = toMenu;
     body.querySelector('#setReset').onclick = () => {
+      if (S && S.daily) {
+        if (!confirm('Günün görevi bırakılsın mı? Bugün yeniden baştan başlayabilirsin.')) return;
+        try { localStorage.removeItem(DAILY_KEY); } catch (_) { /* yok */ }
+        S = null; closeSheet(); syncGlobe(); updateMarkers(); setupStart(); $('start').classList.add('show');
+        return;
+      }
       if (!confirm('Oyun tamamen silinsin mi? Holding yıldızların dahil her şey kaybolur. Bu geri alınamaz.')) return;
       try { localStorage.removeItem(SAVE_KEY); } catch (_) { /* yok */ }
       S = null; closeSheet(); syncGlobe(); updateMarkers(); setupStart(); $('start').classList.add('show');
@@ -1548,6 +1649,9 @@ function sanitizeImported(st) {
   st.badges = bd;
   st.acquired = (st.acquired || []).filter(x => ID.test(x));
   numF(st, 'totalCargo', 'contractsDone', 'loansRepaid');
+  delete st.daily; delete st.rngState;
+  if (st.legacy && st.legacy.path && !sim.PATHS[st.legacy.path]) st.legacy.path = 'none';
+  if (st.brand) st.brand = ID.brandOf(st);
   if (st.scenario) {
     if (!SC.SCENARIOS.some(x => x.id === st.scenario.id && x.days)) delete st.scenario;
     else st.scenario = { id: st.scenario.id, days: Number(st.scenario.days) || 0, won: st.scenario.won == null ? null : Number(st.scenario.won) || 0, lost: !!st.scenario.lost, stars: Math.max(0, Math.min(3, Number(st.scenario.stars) || 0)) };
@@ -1584,7 +1688,7 @@ function dismissTip(open) {
   tipShown = null; hideTip();
   if (open && t.open) {
     const [p, tab] = t.open;
-    ({ routes: openRoutes, fleet: openFleet, license: () => openGrowth(tab), report: () => openReport(tab), rivals: openRivals, news: openNews })[p]();
+    ({ routes: openRoutes, fleet: openFleet, license: () => openGrowth(tab), report: () => openReport(tab), rivals: openRivals, news: openNews, settings: () => openSettings('brand') })[p]();
   }
 }
 $('coach').querySelector('.cok').onclick = () => dismissTip(false);

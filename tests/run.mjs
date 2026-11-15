@@ -133,5 +133,53 @@ for (const sc of SC.SCENARIOS.filter(x => x.days)) {
   ok(S3.cash === 6e6 && sim.fuelMul(S3) > 1.3, 'kriz senaryosu: az para, pahalı yakıt');
 }
 
+section('Günün görevi');
+{
+  const DY = await import('../js/daily.js');
+  const a = DY.dailyDef('2026-11-15'), b = DY.dailyDef('2026-11-15'), c = DY.dailyDef('2026-11-16');
+  ok(a.base === b.base && a.month === b.month && a.mods.map(m => m.id).join() === b.mods.map(m => m.id).join(), 'aynı tarih aynı görev');
+  ok(a.seed !== c.seed, 'farklı tarih farklı tohum');
+  // Aynı hamlelerle iki oyun aynı sonucu verir (olaylar tohumlu)
+  const play = () => {
+    const S = DY.newDaily('T', a);
+    S.fleet.push({ id: 'F1', type: 'atr72', leased: true, reg: 'X', route: null, age: 0, cond: 100 });
+    const near = AIRPORTS.find(x => x.z === 'TR' && x.c !== S.bases[0] && !sim.routeBlocker(S, sim.AP[S.bases[0]], x));
+    addRoute(S, sim.AP[S.bases[0]], near, ['F1']);
+    Math.random = () => 0.5; // arayüz rastgeleliği karışsa bile oyun etkilenmemeli
+    for (let i = 0; i < 60; i++) advanceDay(S);
+    return S;
+  };
+  const s1 = play(), s2 = play();
+  ok(Math.round(s1.cash) === Math.round(s2.cash) && s1.events.length === s2.events.length, `aynı hamleler aynı sonuç (${Math.round(s1.cash)} = ${Math.round(s2.cash)})`);
+  ok(DY.checkDaily(s1) && s1.daily.done && s1.daily.score > 0, '60. günde puan hesaplanır');
+  ok(DY.checkDaily(s1) === null, 'puan bir kez hesaplanır');
+  const t0 = DY.newDaily('T', { ...a, month: 6 });
+  ok(sim.gameDate(t0.t).getUTCMonth() === 6, 'görev seçilen ayda başlar');
+}
+
+section('Holding yolları');
+{
+  seedRandom(3);
+  const mk = path => {
+    const S = newState('T', 'IST', path ? { stars: 0, count: 1, path } : null);
+    S.tier = 3;
+    S.fleet.push({ id: 'F1', type: 'a20n', leased: true, reg: 'X', route: null, age: 0, cond: 100 });
+    const r = addRoute(S, sim.AP.IST, sim.AP.LHR, ['F1']); r.cabin = 2;
+    return sim.routeEcon(r, S.fleet, 180, true, S);
+  };
+  const base = mk(null), lcc = mk('lcc'), lux = mk('lux'), cargo = mk('cargo');
+  ok(lcc.cost < base.cost, 'ucuz havayolu: gider düşer');
+  ok(lux.bPax > base.bPax || lux.bizLoad >= 0.999, `lüks havayolu: business yolcusu artar (${base.bPax.toFixed(1)} → ${lux.bPax.toFixed(1)}, doluluk ${lux.bizLoad.toFixed(2)})`);
+  ok(cargo.cargoRev > base.cargoRev * 1.1, `kargo devi: kargo geliri artar (${Math.round(base.cargoRev)} → ${Math.round(cargo.cargoRev)})`);
+  ok(sim.pathOf(newState('T', 'IST', { path: 'yok' })).id === 'none', 'bilinmeyen yol klasik sayılır');
+}
+
+section('Havayolu kimliği');
+{
+  const ID = await import('../js/identity.js');
+  ok(ID.brandOf({ brand: { color: 'red;x', logo: '<b>', livery: 'zz' } }).color === ID.DEFAULT_BRAND.color, 'geçersiz renk ve logo varsayılana döner');
+  ok(ID.planeSvg(ID.brandOf({ brand: { color: '#3a86ff', logo: '🦅', livery: 'full' } })).includes('#3a86ff'), 'önizleme seçilen rengi kullanır');
+}
+
 console.log(`\n${pass} geçti, ${fail} kaldı`);
 process.exit(fail ? 1 : 0);
